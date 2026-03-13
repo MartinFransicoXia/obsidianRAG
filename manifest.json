@@ -1,0 +1,9 @@
+{
+  "id": "obsidianRAG",
+  "name": "obsidianRAG",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Chat with your Obsidian vault through a local Python RAG backend.",
+  "author": "BBX with OpenAI Codex",
+  "isDesktopOnly": true
+}

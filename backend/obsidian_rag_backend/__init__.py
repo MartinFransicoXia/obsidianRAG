@@ -1,0 +1,1 @@
+﻿"""obsidianRAG backend package."""
