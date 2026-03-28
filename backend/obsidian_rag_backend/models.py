@@ -27,6 +27,7 @@ class SearchHit:
     metadata: Dict[str, Any]
     distance: float
     similarity: float
+    rerank_score: Optional[float] = None
 
 
 @dataclass
@@ -56,3 +57,13 @@ class ChatResult:
     sources: List[Dict[str, Any]]
     thinking: str = ""
     exported_path: Optional[str] = None
+
+
+@dataclass
+class NoteContext:
+    relative_path: str
+    filepath: str
+    content: str
+    similarity: float
+    chunk_id: str
+    rerank_score: Optional[float] = None

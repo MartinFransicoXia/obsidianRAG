@@ -66,3 +66,21 @@ class VaultDocumentLoader:
                 )
             )
         return documents
+
+    def load_note(self, relative_path: str) -> Document:
+        path = (self.vault_paths.vault_root / relative_path).resolve()
+        if self._should_skip(path) or not path.is_file():
+            raise FileNotFoundError(f"Note not found: {relative_path}")
+
+        stat = path.stat()
+        return Document(
+            content=path.read_text(encoding="utf-8"),
+            metadata={
+                "filename": path.name,
+                "filepath": str(path),
+                "relative_path": path.relative_to(self.vault_paths.vault_root).as_posix(),
+                "file_size": stat.st_size,
+                "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "source": "obsidian_vault",
+            },
+        )

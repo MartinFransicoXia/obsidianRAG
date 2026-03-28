@@ -5,7 +5,7 @@ from typing import Iterator, List
 
 import requests
 
-from .models import SearchHit, SessionMessage
+from .models import NoteContext, SearchHit, SessionMessage
 
 
 MODEL_ALIASES = {
@@ -13,11 +13,15 @@ MODEL_ALIASES = {
 }
 
 
-def build_rag_messages(query: str, hits: List[SearchHit], history: List[SessionMessage]) -> list[dict]:
+def build_rag_messages(query: str, hits: List[SearchHit] | List[NoteContext], history: List[SessionMessage]) -> list[dict]:
     context_blocks = []
     for hit in hits:
+        score_suffix = ""
+        rerank_score = getattr(hit, "rerank_score", None)
+        if rerank_score is not None:
+            score_suffix = f" | rerank={rerank_score:.3f}"
         context_blocks.append(
-            f"[Source: {hit.metadata.get('relative_path', 'unknown')} | similarity={hit.similarity:.3f}]\n{hit.content}"
+            f"[Source: {hit.metadata.get('relative_path', 'unknown') if hasattr(hit, 'metadata') else hit.relative_path} | similarity={hit.similarity:.3f}{score_suffix}]\n{hit.content}"
         )
     context = "\n\n---\n\n".join(context_blocks) if context_blocks else "No matching notes found."
 
@@ -83,7 +87,7 @@ class OllamaClient:
         self,
         model: str,
         query: str,
-        hits: List[SearchHit],
+        hits: List[SearchHit] | List[NoteContext],
         history: List[SessionMessage],
         enable_thinking: bool = False,
     ) -> Iterator[dict]:

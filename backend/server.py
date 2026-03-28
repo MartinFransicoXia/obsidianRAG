@@ -9,7 +9,22 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
-from obsidian_rag_backend.config import DEFAULT_CHAT_MODEL, DEFAULT_EMBEDDING_MODEL, DEFAULT_MAX_RESULTS, DEFAULT_PORT, DEFAULT_THRESHOLD
+from obsidian_rag_backend.config import (
+    DEFAULT_CHAT_MODEL,
+    DEFAULT_EMBEDDING_API_BASE,
+    DEFAULT_EMBEDDING_BACKEND,
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_FINAL_NOTE_COUNT,
+    DEFAULT_MAX_RESULTS,
+    DEFAULT_PORT,
+    DEFAULT_RERANK_API_BASE,
+    DEFAULT_RERANK_CANDIDATES,
+    DEFAULT_RERANK_MODEL,
+    DEFAULT_RETRIEVAL_LIMIT,
+    DEFAULT_THRESHOLD,
+    MAX_RERANK_CANDIDATES,
+    MAX_RETRIEVAL_LIMIT,
+)
 from obsidian_rag_backend.service import ObsidianRAGService
 
 
@@ -34,6 +49,9 @@ class ChatRequest(BaseModel):
     enable_thinking: bool = False
     threshold: float = DEFAULT_THRESHOLD
     max_results: int = DEFAULT_MAX_RESULTS
+    retrieval_limit: int = Field(default=DEFAULT_RETRIEVAL_LIMIT, ge=1, le=MAX_RETRIEVAL_LIMIT)
+    rerank_candidates: int = Field(default=DEFAULT_RERANK_CANDIDATES, ge=1, le=MAX_RERANK_CANDIDATES)
+    final_note_count: int = Field(default=DEFAULT_FINAL_NOTE_COUNT, ge=1)
 
 
 class EndSessionRequest(BaseModel):
@@ -41,8 +59,19 @@ class EndSessionRequest(BaseModel):
 
 
 embedding_model = os.environ.get("OBSIDIAN_RAG_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
+embedding_backend = os.environ.get("OBSIDIAN_RAG_EMBEDDING_BACKEND", DEFAULT_EMBEDDING_BACKEND)
+embedding_api_base = os.environ.get("OBSIDIAN_RAG_EMBEDDING_API_BASE", DEFAULT_EMBEDDING_API_BASE)
+rerank_model = os.environ.get("OBSIDIAN_RAG_RERANK_MODEL", DEFAULT_RERANK_MODEL)
+rerank_api_base = os.environ.get("OBSIDIAN_RAG_RERANK_API_BASE", DEFAULT_RERANK_API_BASE)
 ollama_host = os.environ.get("OBSIDIAN_RAG_OLLAMA_HOST", "http://127.0.0.1:11434")
-service = ObsidianRAGService(embedding_model=embedding_model, ollama_host=ollama_host)
+service = ObsidianRAGService(
+    embedding_model=embedding_model,
+    ollama_host=ollama_host,
+    embedding_backend=embedding_backend,
+    embedding_api_base=embedding_api_base,
+    rerank_model=rerank_model,
+    rerank_api_base=rerank_api_base,
+)
 app = FastAPI(title="obsidianRAG backend", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -92,6 +121,9 @@ def chat(payload: ChatRequest):
             enable_thinking=payload.enable_thinking,
             threshold=payload.threshold,
             max_results=payload.max_results,
+            retrieval_limit=payload.retrieval_limit,
+            rerank_candidates=payload.rerank_candidates,
+            final_note_count=payload.final_note_count,
         )
         return {
             "session_id": result.session_id,
@@ -117,6 +149,9 @@ def chat_stream(payload: ChatRequest):
                 enable_thinking=payload.enable_thinking,
                 threshold=payload.threshold,
                 max_results=payload.max_results,
+                retrieval_limit=payload.retrieval_limit,
+                rerank_candidates=payload.rerank_candidates,
+                final_note_count=payload.final_note_count,
             ):
                 yield json.dumps(event, ensure_ascii=False) + "\n"
         except Exception as exc:

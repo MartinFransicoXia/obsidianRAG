@@ -7,33 +7,59 @@ from typing import Dict, Iterator, List
 from .config import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
+    DEFAULT_FINAL_NOTE_COUNT,
     DEFAULT_MAX_RESULTS,
     DEFAULT_MIN_CHUNK_SIZE,
+    DEFAULT_RERANK_API_BASE,
+    DEFAULT_RERANK_CANDIDATES,
+    DEFAULT_RERANK_MODEL,
+    DEFAULT_RETRIEVAL_LIMIT,
     DEFAULT_THRESHOLD,
+    DEFAULT_EMBEDDING_API_BASE,
+    DEFAULT_EMBEDDING_BACKEND,
     build_index_signature,
     ensure_vault_dirs,
+    MAX_RERANK_CANDIDATES,
+    MAX_RETRIEVAL_LIMIT,
     resolve_vault_paths,
 )
 from .document_loader import VaultDocumentLoader
 from .embedder import LocalEmbedder
-from .models import ChatResult, SearchHit, SessionMessage
+from .models import ChatResult, NoteContext, SearchHit, SessionMessage
 from .ollama_client import OllamaClient
 from .openai_compatible_client import OpenAICompatibleClient
+from .reranker import VLLMReranker
 from .session_store import SessionStore
 from .splitter import TextSplitter
 from .vector_store import VectorStore
 
 
 class ObsidianRAGService:
-    def __init__(self, embedding_model: str, ollama_host: str, collection_name: str = "obsidianRAG"):
+    def __init__(
+        self,
+        embedding_model: str,
+        ollama_host: str,
+        collection_name: str = "obsidianRAG",
+        embedding_backend: str = DEFAULT_EMBEDDING_BACKEND,
+        embedding_api_base: str = DEFAULT_EMBEDDING_API_BASE,
+        rerank_model: str = DEFAULT_RERANK_MODEL,
+        rerank_api_base: str = DEFAULT_RERANK_API_BASE,
+    ):
         self.embedding_model = embedding_model
         self.collection_name = collection_name
-        self.embedder = LocalEmbedder(embedding_model)
+        self.embedder = LocalEmbedder(
+            model_name=embedding_model,
+            backend=embedding_backend,
+            api_base=embedding_api_base,
+        )
+        self.rerank_model = rerank_model
+        self.reranker = VLLMReranker(rerank_model, rerank_api_base)
         self.default_ollama_host = ollama_host
 
     def _settings_payload(self) -> Dict[str, object]:
         return {
             "embedding_model": self.embedding_model,
+            "rerank_model": self.rerank_model,
             "chunk_size": DEFAULT_CHUNK_SIZE,
             "chunk_overlap": DEFAULT_CHUNK_OVERLAP,
             "min_chunk_size": DEFAULT_MIN_CHUNK_SIZE,
@@ -81,6 +107,14 @@ class ObsidianRAGService:
         except Exception:
             provider_name = (provider or "ollama").strip().lower() or "ollama"
             llm_healthy = False
+        try:
+            embedding_healthy = self.embedder.health()
+        except Exception:
+            embedding_healthy = False
+        try:
+            rerank_healthy = self.reranker.health()
+        except Exception:
+            rerank_healthy = False
 
         return {
             "vault_path": str(vault_paths.vault_root),
@@ -92,6 +126,9 @@ class ObsidianRAGService:
             "llm_provider": provider_name,
             "llm_healthy": llm_healthy,
             "embedding_model": self.embedding_model,
+            "embedding_healthy": embedding_healthy,
+            "rerank_model": self.rerank_model,
+            "rerank_healthy": rerank_healthy,
         }
 
     def build_index(self, vault_path: str) -> Dict[str, object]:
@@ -126,6 +163,68 @@ class ObsidianRAGService:
         query_embedding = self.embedder.embed_query(query)
         return store.search(query_embedding, threshold=threshold, max_results=max_results)
 
+    def _load_note_contexts(
+        self,
+        vault_path: str,
+        hits: List[SearchHit],
+        final_note_count: int,
+    ) -> tuple[List[NoteContext], List[dict]]:
+        vault_paths = resolve_vault_paths(vault_path)
+        ensure_vault_dirs(vault_paths)
+        loader = VaultDocumentLoader(vault_paths)
+        note_contexts: List[NoteContext] = []
+        source_payload: List[dict] = []
+        seen_paths: set[str] = set()
+        for hit in hits:
+            relative_path = str(hit.metadata.get("relative_path", "")).strip()
+            if not relative_path or relative_path in seen_paths:
+                continue
+            note = loader.load_note(relative_path)
+            seen_paths.add(relative_path)
+            note_contexts.append(
+                NoteContext(
+                    relative_path=relative_path,
+                    filepath=str(note.metadata.get("filepath", "")),
+                    content=note.content,
+                    similarity=hit.similarity,
+                    chunk_id=hit.chunk_id,
+                    rerank_score=hit.rerank_score,
+                )
+            )
+            source_payload.append(
+                {
+                    "relative_path": relative_path,
+                    "filepath": note.metadata.get("filepath"),
+                    "similarity": hit.similarity,
+                    "rerank_score": hit.rerank_score,
+                    "chunk_id": hit.chunk_id,
+                }
+            )
+            if len(note_contexts) >= final_note_count:
+                break
+        return note_contexts, source_payload
+
+    def retrieve_context(
+        self,
+        vault_path: str,
+        query: str,
+        threshold: float = DEFAULT_THRESHOLD,
+        max_results: int = DEFAULT_MAX_RESULTS,
+        retrieval_limit: int = DEFAULT_RETRIEVAL_LIMIT,
+        rerank_candidates: int = DEFAULT_RERANK_CANDIDATES,
+        final_note_count: int = DEFAULT_FINAL_NOTE_COUNT,
+    ) -> tuple[List[NoteContext], List[dict]]:
+        initial_limit = max(max_results, min(retrieval_limit, MAX_RETRIEVAL_LIMIT))
+        rerank_limit = min(max(rerank_candidates, 1), MAX_RERANK_CANDIDATES)
+        final_limit = max(1, final_note_count)
+        hits = self.search(vault_path, query, threshold=threshold, max_results=initial_limit)
+        rerank_input = hits[:rerank_limit]
+        try:
+            reranked_hits = self.reranker.rerank(query, rerank_input, top_k=rerank_limit)
+        except Exception:
+            reranked_hits = rerank_input
+        return self._load_note_contexts(vault_path, reranked_hits, final_limit)
+
     def _prepare_chat(
         self,
         vault_path: str,
@@ -135,24 +234,26 @@ class ObsidianRAGService:
         api_key: str | None,
         threshold: float,
         max_results: int,
-    ) -> tuple[object, str, List[SessionMessage], List[SearchHit], List[dict], SessionStore]:
+        retrieval_limit: int,
+        rerank_candidates: int,
+        final_note_count: int,
+    ) -> tuple[object, str, List[SessionMessage], List[NoteContext], List[dict], SessionStore]:
         _, client = self._build_client(provider, api_base, api_key)
-        hits = self.search(vault_path, query, threshold=threshold, max_results=max_results)
+        note_contexts, source_payload = self.retrieve_context(
+            vault_path=vault_path,
+            query=query,
+            threshold=threshold,
+            max_results=max_results,
+            retrieval_limit=retrieval_limit,
+            rerank_candidates=rerank_candidates,
+            final_note_count=final_note_count,
+        )
         vault_paths = resolve_vault_paths(vault_path)
         ensure_vault_dirs(vault_paths)
         sessions = SessionStore(vault_paths)
         session_id, history = sessions.load_active()
         history.append(SessionMessage(role="user", content=query))
-        source_payload = [
-            {
-                "relative_path": hit.metadata.get("relative_path"),
-                "filepath": hit.metadata.get("filepath"),
-                "similarity": hit.similarity,
-                "chunk_id": hit.chunk_id,
-            }
-            for hit in hits
-        ]
-        return client, session_id, history, hits, source_payload, sessions
+        return client, session_id, history, note_contexts, source_payload, sessions
 
     def _finalize_chat(
         self,
@@ -178,6 +279,9 @@ class ObsidianRAGService:
         enable_thinking: bool = False,
         threshold: float = DEFAULT_THRESHOLD,
         max_results: int = DEFAULT_MAX_RESULTS,
+        retrieval_limit: int = DEFAULT_RETRIEVAL_LIMIT,
+        rerank_candidates: int = DEFAULT_RERANK_CANDIDATES,
+        final_note_count: int = DEFAULT_FINAL_NOTE_COUNT,
     ) -> ChatResult:
         final_result: ChatResult | None = None
         for event in self.stream_chat(
@@ -190,6 +294,9 @@ class ObsidianRAGService:
             enable_thinking=enable_thinking,
             threshold=threshold,
             max_results=max_results,
+            retrieval_limit=retrieval_limit,
+            rerank_candidates=rerank_candidates,
+            final_note_count=final_note_count,
         ):
             if event["type"] == "done":
                 final_result = ChatResult(
@@ -213,6 +320,9 @@ class ObsidianRAGService:
         enable_thinking: bool = False,
         threshold: float = DEFAULT_THRESHOLD,
         max_results: int = DEFAULT_MAX_RESULTS,
+        retrieval_limit: int = DEFAULT_RETRIEVAL_LIMIT,
+        rerank_candidates: int = DEFAULT_RERANK_CANDIDATES,
+        final_note_count: int = DEFAULT_FINAL_NOTE_COUNT,
     ) -> Iterator[dict]:
         client, session_id, history, hits, source_payload, sessions = self._prepare_chat(
             vault_path=vault_path,
@@ -222,6 +332,9 @@ class ObsidianRAGService:
             api_key=api_key,
             threshold=threshold,
             max_results=max_results,
+            retrieval_limit=retrieval_limit,
+            rerank_candidates=rerank_candidates,
+            final_note_count=final_note_count,
         )
         yield {"type": "session", "session_id": session_id}
 
