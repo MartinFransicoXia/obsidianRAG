@@ -152,6 +152,7 @@ export default class ObsidianRAGPlugin extends Plugin {
   }
 
   async api<T>(path: string, body: Record<string, unknown>): Promise<T> {
+    console.debug("obsidianRAG api request", { path, body, backendUrl: this.settings.backendUrl });
     const response = await fetch(`${this.settings.backendUrl}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -159,9 +160,12 @@ export default class ObsidianRAGPlugin extends Plugin {
     });
     if (!response.ok) {
       const detail = await response.text();
+      console.error("obsidianRAG api error", { path, status: response.status, detail });
       throw new Error(detail || `HTTP ${response.status}`);
     }
-    return (await response.json()) as T;
+    const payload = (await response.json()) as T;
+    console.debug("obsidianRAG api response", { path, payload });
+    return payload;
   }
 
   async stream(path: string, body: Record<string, unknown>, onEvent: (event: ChatStreamEvent) => void): Promise<void> {

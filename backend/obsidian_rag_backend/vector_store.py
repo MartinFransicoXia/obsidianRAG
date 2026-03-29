@@ -31,23 +31,34 @@ class VectorStore:
 
     def add_chunks(self, chunks: List[TextChunk], embeddings: List[List[float]]) -> None:
         collection = self._collection()
-        collection.add(
-            ids=[chunk.chunk_id for chunk in chunks],
-            embeddings=[embedding.tolist() if hasattr(embedding, "tolist") else list(embedding) for embedding in embeddings],
-            documents=[chunk.content for chunk in chunks],
-            metadatas=[
-                {
-                    "filename": chunk.metadata.get("filename", "unknown"),
-                    "filepath": chunk.metadata.get("filepath", "unknown"),
-                    "relative_path": chunk.metadata.get("relative_path", "unknown"),
-                    "chunk_id": chunk.chunk_id,
-                    "start_pos": chunk.start_pos,
-                    "end_pos": chunk.end_pos,
-                    "source": chunk.metadata.get("source", "unknown"),
-                }
-                for chunk in chunks
-            ],
-        )
+        max_batch_size = getattr(self.client, "max_batch_size", None) or 5000
+        for start in range(0, len(chunks), max_batch_size):
+            batch_chunks = chunks[start:start + max_batch_size]
+            batch_embeddings = embeddings[start:start + max_batch_size]
+            print(
+                "[obsidianRAG] vector_store add "
+                f"start={start} end={start + len(batch_chunks)} batch_size={len(batch_chunks)}"
+            )
+            collection.add(
+                ids=[chunk.chunk_id for chunk in batch_chunks],
+                embeddings=[
+                    embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
+                    for embedding in batch_embeddings
+                ],
+                documents=[chunk.content for chunk in batch_chunks],
+                metadatas=[
+                    {
+                        "filename": chunk.metadata.get("filename", "unknown"),
+                        "filepath": chunk.metadata.get("filepath", "unknown"),
+                        "relative_path": chunk.metadata.get("relative_path", "unknown"),
+                        "chunk_id": chunk.chunk_id,
+                        "start_pos": chunk.start_pos,
+                        "end_pos": chunk.end_pos,
+                        "source": chunk.metadata.get("source", "unknown"),
+                    }
+                    for chunk in batch_chunks
+                ],
+            )
 
     def count(self) -> int:
         return self._collection().count()

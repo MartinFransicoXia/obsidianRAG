@@ -46,10 +46,16 @@ class _VLLMEmbedder:
         self.session.trust_env = False
 
     def _embed(self, inputs: List[str]) -> np.ndarray:
+        lengths = [len(item) for item in inputs]
+        print(
+            "[obsidianRAG] embedding request "
+            f"count={len(inputs)} max_len={max(lengths) if lengths else 0} "
+            f"lengths_head={lengths[:5]}"
+        )
         response = self.session.post(
             f"{self.api_base}/embeddings",
             json={"model": self.model_name, "input": inputs, "encoding_format": "float"},
-            timeout=120,
+            timeout=12000,
         )
         response.raise_for_status()
         data = response.json()
@@ -61,7 +67,12 @@ class _VLLMEmbedder:
     def embed_texts(self, texts: List[str], batch_size: int = 32) -> np.ndarray:
         batches: List[np.ndarray] = []
         for start in range(0, len(texts), batch_size):
-            batches.append(self._embed(texts[start:start + batch_size]))
+            batch = texts[start:start + batch_size]
+            print(
+                "[obsidianRAG] embedding batch "
+                f"start={start} end={start + len(batch)} batch_size={len(batch)}"
+            )
+            batches.append(self._embed(batch))
         if not batches:
             return np.empty((0, 0), dtype=np.float32)
         return np.vstack(batches)
@@ -94,7 +105,7 @@ class LocalEmbedder:
         else:
             self.impl = _VLLMEmbedder(model_name, self.api_base)
 
-    def embed_texts(self, texts: List[str], batch_size: int = 32) -> np.ndarray:
+    def embed_texts(self, texts: List[str], batch_size: int = 4) -> np.ndarray: # 这里的batch_size只是限制了单次文本条数，没有限制总token，有风险
         return self.impl.embed_texts(texts, batch_size=batch_size)
 
     def embed_query(self, text: str) -> np.ndarray:

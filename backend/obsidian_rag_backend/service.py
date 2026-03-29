@@ -138,6 +138,14 @@ class ObsidianRAGService:
         documents = loader.load_documents()
         splitter = TextSplitter(DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP, DEFAULT_MIN_CHUNK_SIZE)
         chunks = splitter.split_documents(documents)
+        if chunks:
+            max_chunk_length = max(len(chunk.content) for chunk in chunks)
+            top_chunk_lengths = sorted(
+                ((len(chunk.content), chunk.chunk_id) for chunk in chunks),
+                reverse=True,
+            )[:5]
+            print(f"[obsidianRAG] build_index chunk_count={len(chunks)} max_chunk_length={max_chunk_length}")
+            print(f"[obsidianRAG] build_index top_chunks={top_chunk_lengths}")
         embeddings = self.embedder.embed_texts([chunk.content for chunk in chunks]) if chunks else []
 
         store = VectorStore(vault_paths, self.collection_name)
