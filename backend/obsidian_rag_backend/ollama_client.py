@@ -5,7 +5,7 @@ from typing import Iterator, List
 
 import requests
 
-from .models import NoteContext, SearchHit, SessionMessage
+from .models import ContextGroup, NoteContext, SearchHit, SessionMessage
 
 
 MODEL_ALIASES = {
@@ -13,16 +13,15 @@ MODEL_ALIASES = {
 }
 
 
-def build_rag_messages(query: str, hits: List[SearchHit] | List[NoteContext], history: List[SessionMessage]) -> list[dict]:
+def build_rag_messages(query: str, hits: List[SearchHit] | List[NoteContext] | List[ContextGroup], history: List[SessionMessage]) -> list[dict]:
     context_blocks = []
     for hit in hits:
-        score_suffix = ""
+        relative_path = hit.metadata.get("relative_path", "unknown") if hasattr(hit, "metadata") else getattr(hit, "relative_path", "unknown")
+        similarity = getattr(hit, "similarity", getattr(hit, "vector_score", 0.0))
         rerank_score = getattr(hit, "rerank_score", None)
-        if rerank_score is not None:
-            score_suffix = f" | rerank={rerank_score:.3f}"
-        context_blocks.append(
-            f"[Source: {hit.metadata.get('relative_path', 'unknown') if hasattr(hit, 'metadata') else hit.relative_path} | similarity={hit.similarity:.3f}{score_suffix}]\n{hit.content}"
-        )
+        content = getattr(hit, "content", getattr(hit, "merged_text", ""))
+        score_suffix = f" | rerank={rerank_score:.3f}" if rerank_score is not None else ""
+        context_blocks.append(f"[Source: {relative_path} | similarity={similarity:.3f}{score_suffix}]\n{content}")
     context = "\n\n---\n\n".join(context_blocks) if context_blocks else "No matching notes found."
 
     history_lines = []
@@ -80,14 +79,14 @@ class OllamaClient:
                 return candidate
         return requested
 
-    def build_messages(self, query: str, hits: List[SearchHit], history: List[SessionMessage]) -> list[dict]:
+    def build_messages(self, query: str, hits: List[SearchHit] | List[NoteContext] | List[ContextGroup], history: List[SessionMessage]) -> list[dict]:
         return build_rag_messages(query, hits, history)
 
     def stream_chat(
         self,
         model: str,
         query: str,
-        hits: List[SearchHit] | List[NoteContext],
+        hits: List[SearchHit] | List[NoteContext] | List[ContextGroup],
         history: List[SessionMessage],
         enable_thinking: bool = False,
     ) -> Iterator[dict]:

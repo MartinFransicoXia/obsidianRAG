@@ -5,7 +5,7 @@ from typing import Iterator, List
 
 import requests
 
-from .models import NoteContext, SearchHit, SessionMessage
+from .models import ContextGroup, NoteContext, SearchHit, SessionMessage
 from .ollama_client import build_rag_messages
 
 
@@ -36,7 +36,7 @@ class OpenAICompatibleClient:
         self,
         model: str,
         query: str,
-        hits: List[SearchHit] | List[NoteContext],
+        hits: List[SearchHit] | List[NoteContext] | List[ContextGroup],
         history: List[SessionMessage],
         enable_thinking: bool = False,
     ) -> Iterator[dict]:

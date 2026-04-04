@@ -136,8 +136,14 @@
   background: var(--background-modifier-form-field);
   padding: 5px 8px;
   border-radius: 999px;
+  cursor: pointer;
   user-select: text;
   -webkit-user-select: text;
+}
+
+.obsidian-rag-source:hover {
+  color: var(--text-normal);
+  background: var(--background-secondary-alt);
 }
 
 .obsidian-rag-copy-button {

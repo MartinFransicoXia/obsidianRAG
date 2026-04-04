@@ -51,7 +51,17 @@ class VectorStore:
                         "filename": chunk.metadata.get("filename", "unknown"),
                         "filepath": chunk.metadata.get("filepath", "unknown"),
                         "relative_path": chunk.metadata.get("relative_path", "unknown"),
+                        "note_id": chunk.note_id or chunk.metadata.get("relative_path", "unknown"),
+                        "note_title": chunk.note_title,
+                        "doc_type": chunk.doc_type,
+                        "note_date": chunk.note_date.isoformat() if chunk.note_date else None,
                         "chunk_id": chunk.chunk_id,
+                        "chunk_index": chunk.chunk_index,
+                        "prev_chunk_id": chunk.prev_chunk_id,
+                        "next_chunk_id": chunk.next_chunk_id,
+                        "section_title": chunk.section_title,
+                        "heading_path": " > ".join(chunk.heading_path),
+                        "token_count": chunk.token_count,
                         "start_pos": chunk.start_pos,
                         "end_pos": chunk.end_pos,
                         "source": chunk.metadata.get("source", "unknown"),
@@ -62,6 +72,81 @@ class VectorStore:
 
     def count(self) -> int:
         return self._collection().count()
+
+    def get_chunks_for_note(self, relative_path: str) -> List[SearchHit]:
+        collection = self._collection()
+        raw = collection.get(where={"relative_path": relative_path}, include=["documents", "metadatas"])
+        documents = raw.get("documents", [])
+        metadatas = raw.get("metadatas", [])
+        hits: List[SearchHit] = []
+        for document, metadata in zip(documents, metadatas):
+            hits.append(
+                SearchHit(
+                    chunk_id=metadata.get("chunk_id", "unknown"),
+                    content=document,
+                    metadata=metadata,
+                    distance=0.0,
+                    similarity=0.0,
+                    note_id=metadata.get("note_id", ""),
+                    relative_path=metadata.get("relative_path", ""),
+                    chunk_index=int(metadata.get("chunk_index", 0) or 0),
+                    score=0.0,
+                    source="note",
+                    token_count=int(metadata.get("token_count", 0) or 0),
+                )
+            )
+        hits.sort(key=lambda item: item.chunk_index)
+        return hits
+
+    def get_chunks_by_note_date(self, note_date: str) -> List[SearchHit]:
+        collection = self._collection()
+        raw = collection.get(where={"note_date": note_date}, include=["documents", "metadatas"])
+        documents = raw.get("documents", [])
+        metadatas = raw.get("metadatas", [])
+        hits: List[SearchHit] = []
+        for document, metadata in zip(documents, metadatas):
+            hits.append(
+                SearchHit(
+                    chunk_id=metadata.get("chunk_id", "unknown"),
+                    content=document,
+                    metadata=metadata,
+                    distance=0.0,
+                    similarity=0.0,
+                    note_id=metadata.get("note_id", ""),
+                    relative_path=metadata.get("relative_path", ""),
+                    chunk_index=int(metadata.get("chunk_index", 0) or 0),
+                    score=0.0,
+                    source="temporal",
+                    token_count=int(metadata.get("token_count", 0) or 0),
+                )
+            )
+        hits.sort(key=lambda item: (item.relative_path, item.chunk_index))
+        return hits
+
+    def get_all_chunks(self) -> List[SearchHit]:
+        collection = self._collection()
+        raw = collection.get(include=["documents", "metadatas"])
+        documents = raw.get("documents", [])
+        metadatas = raw.get("metadatas", [])
+        hits: List[SearchHit] = []
+        for document, metadata in zip(documents, metadatas):
+            hits.append(
+                SearchHit(
+                    chunk_id=metadata.get("chunk_id", "unknown"),
+                    content=document,
+                    metadata=metadata,
+                    distance=0.0,
+                    similarity=0.0,
+                    note_id=metadata.get("note_id", ""),
+                    relative_path=metadata.get("relative_path", ""),
+                    chunk_index=int(metadata.get("chunk_index", 0) or 0),
+                    score=0.0,
+                    source="entity_expansion",
+                    token_count=int(metadata.get("token_count", 0) or 0),
+                )
+            )
+        hits.sort(key=lambda item: (item.relative_path, item.chunk_index))
+        return hits
 
     def search(self, query_embedding, threshold: float, max_results: int) -> List[SearchHit]:
         collection = self._collection()
@@ -93,6 +178,12 @@ class VectorStore:
                     metadata=metadata,
                     distance=float(distance),
                     similarity=similarity,
+                    note_id=metadata.get("note_id", ""),
+                    relative_path=metadata.get("relative_path", ""),
+                    chunk_index=int(metadata.get("chunk_index", 0) or 0),
+                    score=similarity,
+                    source="vector",
+                    token_count=int(metadata.get("token_count", 0) or 0),
                 )
             )
         return hits
