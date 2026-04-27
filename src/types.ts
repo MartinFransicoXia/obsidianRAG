@@ -11,6 +11,17 @@ export interface PluginSettings {
   apiBaseUrl: string;
   chatModel: string;
   mergeModel: string;
+  // Embedding
+  embeddingModel: string;
+  embeddingBaseUrl: string;  // 留空则与 apiBaseUrl 相同
+  embeddingDimensions: number;
+  // Rerank
+  rerankEnabled: boolean;
+  rerankModel: string;
+  rerankBaseUrl: string;  // 留空则与 apiBaseUrl 相同
+  // Index cards
+  autoGenerateCards: boolean;
+  // General
   defaultWeights: RetrievalWeights;
   cacheSize: number;
   historyRetentionDays: number;
@@ -25,6 +36,13 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   apiBaseUrl: "https://api.deepseek.com/v1",
   chatModel: "deepseek-reasoner",
   mergeModel: "deepseek-chat",
+  embeddingModel: "text-embedding-v4",
+  embeddingBaseUrl: "",
+  embeddingDimensions: 1024,
+  rerankEnabled: false,
+  rerankModel: "qwen3-rerank",
+  rerankBaseUrl: "",
+  autoGenerateCards: true,
   defaultWeights: {
     keyword: 0.40,
     index: 0.35,

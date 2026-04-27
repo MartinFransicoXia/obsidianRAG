@@ -7,6 +7,7 @@ import { QueryAnalyzer } from "./fusion/query-analyzer";
 import { KnowledgeGenerator } from "./knowledge/generator";
 import { HistoryManager } from "./history/manager";
 import { CloudCache } from "./cloud/cache";
+import { CardGenerator } from "./retrieval/card-generator";
 import { MainRAGView, VIEW_TYPE_RAG } from "./ui/main-view";
 import { UnitDetailView, VIEW_TYPE_RAG_UNIT } from "./ui/unit-view";
 import { HistoryView, VIEW_TYPE_RAG_HISTORY } from "./ui/history-view";
@@ -71,6 +72,7 @@ export default class EnhancedRAGPlugin extends Plugin {
   private knowledgeGenerator!: KnowledgeGenerator;
   private historyManager!: HistoryManager;
   private cloudCache!: CloudCache;
+  private cardGenerator!: CardGenerator;
 
   private mainView: MainRAGView | null = null;
 
@@ -85,6 +87,7 @@ export default class EnhancedRAGPlugin extends Plugin {
     this.knowledgeGenerator = new KnowledgeGenerator(this.app.vault, this.settings);
     this.historyManager = new HistoryManager(this.app, pluginDir, this.settings.historyRetentionDays);
     this.cloudCache = new CloudCache(this.settings.cacheSize);
+    this.cardGenerator = new CardGenerator(this.app.vault);
 
     // Register views
     this.registerView(VIEW_TYPE_RAG, (leaf) => {
@@ -118,6 +121,12 @@ export default class EnhancedRAGPlugin extends Plugin {
       id: "rebuild-indexes",
       name: "重建检索索引",
       callback: () => this.rebuildIndexes()
+    });
+
+    this.addCommand({
+      id: "rebuild-index-cards",
+      name: "重建索引卡",
+      callback: () => this.rebuildIndexCards()
     });
 
     // Add settings tab
@@ -362,6 +371,20 @@ export default class EnhancedRAGPlugin extends Plugin {
   }
 
   /**
+   * Rebuild all index cards
+   */
+  async rebuildIndexCards(): Promise<void> {
+    new Notice("正在重建索引卡...");
+    try {
+      const count = await this.cardGenerator.generateAll(true);
+      new Notice(`索引卡重建完成：生成 ${count} 张`);
+    } catch (error) {
+      console.error("[RAG] Index card rebuild failed:", error);
+      new Notice(`索引卡重建失败: ${(error as Error).message}`);
+    }
+  }
+
+  /**
    * Clear all caches
    */
   async clearCache(): Promise<void> {
@@ -382,16 +405,24 @@ export default class EnhancedRAGPlugin extends Plugin {
    */
   private async onFileModify(file: TAbstractFile): Promise<void> {
     if (file instanceof TFile && file.extension === "md") {
+      // Skip index card files themselves
+      if (file.path.startsWith("00_INDEX/")) return;
       await this.retrievalManager.updateDocument(file.path);
+      if (this.settings.autoGenerateCards) {
+        await this.cardGenerator.generateCard(file);
+      }
     }
   }
 
   /**
    * Handle file deletion for index cleanup
    */
-  private onFileDelete(file: TAbstractFile): void {
+  private async onFileDelete(file: TAbstractFile): Promise<void> {
     if (file instanceof TFile) {
       this.retrievalManager.removeDocument(file.path);
+      if (file.extension === "md" && this.settings.autoGenerateCards) {
+        await this.cardGenerator.deleteCard(file.basename);
+      }
     }
   }
 
@@ -400,8 +431,13 @@ export default class EnhancedRAGPlugin extends Plugin {
    */
   private async onFileRename(file: TAbstractFile, oldPath: string): Promise<void> {
     if (file instanceof TFile && file.extension === "md") {
+      if (file.path.startsWith("00_INDEX/")) return;
       this.retrievalManager.removeDocument(oldPath);
       await this.retrievalManager.updateDocument(file.path);
+      if (this.settings.autoGenerateCards) {
+        const oldName = oldPath.split("/").pop()?.replace(/\.md$/, "") || "";
+        await this.cardGenerator.renameCard(oldName, file);
+      }
     }
   }
 }

@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => EnhancedRAGPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian6 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 
 // src/types.ts
 var DEFAULT_SETTINGS = {
@@ -31,6 +31,13 @@ var DEFAULT_SETTINGS = {
   apiBaseUrl: "https://api.deepseek.com/v1",
   chatModel: "deepseek-reasoner",
   mergeModel: "deepseek-chat",
+  embeddingModel: "text-embedding-v4",
+  embeddingBaseUrl: "",
+  embeddingDimensions: 1024,
+  rerankEnabled: false,
+  rerankModel: "qwen3-rerank",
+  rerankBaseUrl: "",
+  autoGenerateCards: true,
   defaultWeights: {
     keyword: 0.4,
     index: 0.35,
@@ -72,6 +79,35 @@ var RAGSettingTab = class extends import_obsidian.PluginSettingTab {
       this.plugin.settings.mergeModel = value;
       await this.plugin.saveSettings();
     }));
+    containerEl.createEl("h3", { text: "Embedding \u914D\u7F6E" });
+    new import_obsidian.Setting(containerEl).setName("Embedding Model").setDesc("\u5411\u91CF\u5316\u6A21\u578B\uFF08\u5982 text-embedding-v4\uFF09").addText((text) => text.setPlaceholder("text-embedding-v4").setValue(this.plugin.settings.embeddingModel).onChange(async (value) => {
+      this.plugin.settings.embeddingModel = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("Embedding Base URL").setDesc("Embedding API \u5730\u5740\uFF08\u7559\u7A7A\u5219\u4E0E API Base URL \u76F8\u540C\uFF09").addText((text) => text.setPlaceholder("https://dashscope.aliyuncs.com/compatible-mode/v1").setValue(this.plugin.settings.embeddingBaseUrl).onChange(async (value) => {
+      this.plugin.settings.embeddingBaseUrl = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("Embedding \u7EF4\u5EA6").setDesc("\u5411\u91CF\u7EF4\u5EA6\uFF08text-embedding-v4 \u652F\u6301 64-2048\uFF09").addText((text) => text.setPlaceholder("1024").setValue(String(this.plugin.settings.embeddingDimensions)).onChange(async (value) => {
+      const num = parseInt(value, 10);
+      if (!isNaN(num) && num > 0) {
+        this.plugin.settings.embeddingDimensions = num;
+        await this.plugin.saveSettings();
+      }
+    }));
+    containerEl.createEl("h3", { text: "Rerank \u914D\u7F6E" });
+    new import_obsidian.Setting(containerEl).setName("\u542F\u7528 Rerank").setDesc("\u4F7F\u7528 Rerank \u6A21\u578B\u5BF9\u68C0\u7D22\u7ED3\u679C\u4E8C\u6B21\u6392\u5E8F").addToggle((toggle) => toggle.setValue(this.plugin.settings.rerankEnabled).onChange(async (value) => {
+      this.plugin.settings.rerankEnabled = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("Rerank Model").setDesc("\u6392\u5E8F\u6A21\u578B\uFF08\u5982 qwen3-rerank\u3001gte-rerank-v2\uFF09").addText((text) => text.setPlaceholder("qwen3-rerank").setValue(this.plugin.settings.rerankModel).onChange(async (value) => {
+      this.plugin.settings.rerankModel = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("Rerank Base URL").setDesc("Rerank API \u5730\u5740\uFF08\u7559\u7A7A\u5219\u4E0E API Base URL \u76F8\u540C\uFF09").addText((text) => text.setPlaceholder("https://dashscope.aliyuncs.com/compatible-mode/v1").setValue(this.plugin.settings.rerankBaseUrl).onChange(async (value) => {
+      this.plugin.settings.rerankBaseUrl = value;
+      await this.plugin.saveSettings();
+    }));
     containerEl.createEl("h3", { text: "\u68C0\u7D22\u6743\u91CD\u914D\u7F6E" });
     new import_obsidian.Setting(containerEl).setName("\u5173\u952E\u8BCD\u68C0\u7D22\u6743\u91CD").setDesc("\u5173\u952E\u8BCD\u68C0\u7D22\u7684\u9ED8\u8BA4\u6743\u91CD (0-1)").addSlider((slider) => slider.setLimits(0, 1, 0.05).setValue(this.plugin.settings.defaultWeights.keyword).setDynamicTooltip().onChange(async (value) => {
       this.plugin.settings.defaultWeights.keyword = value;
@@ -104,6 +140,10 @@ var RAGSettingTab = class extends import_obsidian.PluginSettingTab {
       this.plugin.settings.enableQueryTypeDetection = value;
       await this.plugin.saveSettings();
     }));
+    new import_obsidian.Setting(containerEl).setName("\u81EA\u52A8\u751F\u6210\u7D22\u5F15\u5361").setDesc("\u6587\u4EF6\u4FDD\u5B58\u65F6\u81EA\u52A8\u751F\u6210/\u66F4\u65B0\u7D22\u5F15\u5361\u5230 00_INDEX/files/").addToggle((toggle) => toggle.setValue(this.plugin.settings.autoGenerateCards).onChange(async (value) => {
+      this.plugin.settings.autoGenerateCards = value;
+      await this.plugin.saveSettings();
+    }));
     containerEl.createEl("h3", { text: "\u754C\u9762\u914D\u7F6E" });
     new import_obsidian.Setting(containerEl).setName("\u81EA\u52A8\u6253\u5F00\u9762\u677F").setDesc("\u641C\u7D22\u65F6\u81EA\u52A8\u6253\u5F00 RAG \u9762\u677F").addToggle((toggle) => toggle.setValue(this.plugin.settings.autoOpenChatPanel).onChange(async (value) => {
       this.plugin.settings.autoOpenChatPanel = value;
@@ -116,6 +156,11 @@ var RAGSettingTab = class extends import_obsidian.PluginSettingTab {
     containerEl.createEl("h3", { text: "\u6570\u636E\u7BA1\u7406" });
     new import_obsidian.Setting(containerEl).setName("\u91CD\u5EFA\u7D22\u5F15").setDesc("\u91CD\u5EFA\u68C0\u7D22\u7D22\u5F15\uFF08\u6E05\u9664\u5E76\u91CD\u65B0\u6784\u5EFA\u5173\u952E\u8BCD\u548C\u5411\u91CF\u7D22\u5F15\uFF09").addButton((button) => button.setButtonText("\u91CD\u5EFA").onClick(async () => {
       await this.plugin.rebuildIndexes();
+      button.setButtonText("\u5B8C\u6210");
+      setTimeout(() => button.setButtonText("\u91CD\u5EFA"), 2e3);
+    }));
+    new import_obsidian.Setting(containerEl).setName("\u91CD\u5EFA\u7D22\u5F15\u5361").setDesc("\u626B\u63CF\u6240\u6709 Markdown \u6587\u4EF6\uFF0C\u91CD\u65B0\u751F\u6210 00_INDEX/files/ \u4E0B\u7684\u7D22\u5F15\u5361").addButton((button) => button.setButtonText("\u91CD\u5EFA").onClick(async () => {
+      await this.plugin.rebuildIndexCards();
       button.setButtonText("\u5B8C\u6210");
       setTimeout(() => button.setButtonText("\u91CD\u5EFA"), 2e3);
     }));
@@ -1916,10 +1961,260 @@ var HistoryManager = class {
   }
 };
 
-// src/ui/main-view.ts
+// src/retrieval/card-generator.ts
 var import_obsidian3 = require("obsidian");
+var INDEX_DIR = "00_INDEX/files";
+var CardGenerator = class {
+  constructor(vault) {
+    this.vault = vault;
+  }
+  /**
+   * Generate an index card for a single file
+   */
+  async generateCard(file) {
+    const content = await this.vault.cachedRead(file);
+    const fm = this.parseFrontmatter(content);
+    const body = this.stripFrontmatter(content);
+    const title = this.extractTitle(body, file.basename);
+    const links = this.extractWikiLinks(content);
+    const tags = this.extractTags(content, fm);
+    const domain = this.extractDomain(file.path);
+    const oneLine = this.extractOneLineSummary(body);
+    const keywords = this.extractKeywords(content, title);
+    const cardFrontmatter = this.buildCardFrontmatter({
+      docId: file.path,
+      title,
+      path: file.path,
+      scope: "mainline",
+      domain,
+      topicPrimary: title,
+      oneLineSummary: oneLine,
+      tags,
+      retrievalKeywords: keywords,
+      relatedFiles: links
+    });
+    const cardContent = `---
+${cardFrontmatter}---
+
+# ${title}
+
+${oneLine}`;
+    const cardPath = `${INDEX_DIR}/${file.basename}.md`;
+    const dir = this.vault.getAbstractFileByPath(INDEX_DIR);
+    if (!dir) {
+      await this.vault.createFolder(INDEX_DIR);
+    }
+    const existing = this.vault.getAbstractFileByPath(cardPath);
+    if (existing instanceof import_obsidian3.TFile) {
+      await this.vault.modify(existing, cardContent);
+    } else {
+      await this.vault.create(cardPath, cardContent);
+    }
+  }
+  /**
+   * Generate cards for all markdown files in the vault
+   */
+  async generateAll(force = false) {
+    const dir = this.vault.getAbstractFileByPath(INDEX_DIR);
+    const existingCards = /* @__PURE__ */ new Set();
+    if (dir instanceof import_obsidian3.TFolder) {
+      for (const child of dir.children) {
+        if (child instanceof import_obsidian3.TFile) {
+          existingCards.add(child.basename);
+        }
+      }
+    }
+    const files = this.vault.getMarkdownFiles();
+    let count = 0;
+    for (const file of files) {
+      if (file.path.startsWith(INDEX_DIR))
+        continue;
+      if (!force && existingCards.has(file.basename))
+        continue;
+      try {
+        await this.generateCard(file);
+        count++;
+      } catch (e) {
+        console.warn(`[RAG] Failed to generate card for ${file.path}:`, e);
+      }
+    }
+    return count;
+  }
+  /**
+   * Delete the index card for a file
+   */
+  async deleteCard(fileName) {
+    const cardPath = `${INDEX_DIR}/${fileName}.md`;
+    const file = this.vault.getAbstractFileByPath(cardPath);
+    if (file instanceof import_obsidian3.TFile) {
+      await this.vault.delete(file);
+    }
+  }
+  /**
+   * Rename the index card when a file is renamed
+   */
+  async renameCard(oldName, newFile) {
+    await this.deleteCard(oldName);
+    await this.generateCard(newFile);
+  }
+  // ── Parsing helpers ──────────────────────────────────────
+  parseFrontmatter(content) {
+    const fm = {};
+    const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
+    if (!match)
+      return fm;
+    const lines = match[1].split("\n");
+    let currentKey = null;
+    let currentList = [];
+    for (const line of lines) {
+      const listMatch = line.match(/^\s{2,}-\s+(.+)$/);
+      if (listMatch && currentKey) {
+        currentList.push(listMatch[1].trim().replace(/^["']|["']$/g, ""));
+        continue;
+      }
+      if (currentKey && currentList.length) {
+        fm[currentKey] = currentList.join("\n");
+        currentList = [];
+        currentKey = null;
+      }
+      const kv = line.match(/^([\w_]+)\s*:\s*(.*)$/);
+      if (kv) {
+        const key = kv[1];
+        const val = kv[2].trim().replace(/^["']|["']$/g, "");
+        if (val) {
+          fm[key] = val;
+        } else {
+          currentKey = key;
+          currentList = [];
+        }
+      }
+    }
+    if (currentKey && currentList.length) {
+      fm[currentKey] = currentList.join("\n");
+    }
+    return fm;
+  }
+  stripFrontmatter(content) {
+    return content.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, "");
+  }
+  extractTitle(body, fallback) {
+    for (const line of body.split("\n")) {
+      const match = line.trim().match(/^#\s+(.+)$/);
+      if (match)
+        return match[1].trim();
+    }
+    return fallback;
+  }
+  extractWikiLinks(content) {
+    const links = [];
+    const seen = /* @__PURE__ */ new Set();
+    const regex = /\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g;
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      const link = match[1].trim();
+      const lower = link.toLowerCase();
+      if (!seen.has(lower)) {
+        seen.add(lower);
+        links.push(link);
+      }
+    }
+    return links;
+  }
+  extractTags(content, fm) {
+    const tags = [];
+    if (fm.tags) {
+      const tagList = fm.tags.split("\n").length > 1 ? fm.tags.split("\n") : fm.tags.split(",");
+      for (const t of tagList) {
+        const clean = t.trim().replace(/^["']|["']$/g, "").replace(/^-\s+/, "");
+        if (clean)
+          tags.push(clean);
+      }
+    }
+    const inlineRegex = /(?:^|\s)#([一-鿿\w]{2,})/g;
+    let match;
+    while ((match = inlineRegex.exec(content)) !== null) {
+      if (!tags.includes(match[1]))
+        tags.push(match[1]);
+    }
+    return tags;
+  }
+  extractDomain(path) {
+    const parts = path.split("/");
+    return parts.length > 1 ? parts[0] : "";
+  }
+  extractOneLineSummary(body) {
+    for (const line of body.split("\n")) {
+      const stripped = line.trim();
+      if (stripped && !stripped.startsWith("#")) {
+        return stripped.substring(0, 150);
+      }
+    }
+    return "";
+  }
+  extractKeywords(content, title) {
+    const keywords = [];
+    if (title)
+      keywords.push(title.replace(/[#\-_]/g, " ").trim());
+    const words = content.match(/[一-鿿]{2,}|[a-zA-Z]{3,}/g) || [];
+    const freq = {};
+    for (const w of words) {
+      const lower = w.toLowerCase();
+      freq[lower] = (freq[lower] || 0) + 1;
+    }
+    const titleLower = title.toLowerCase();
+    const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
+    for (const [word, count] of sorted) {
+      if (count < 3)
+        break;
+      if (!titleLower.includes(word) && word.length >= 2) {
+        keywords.push(word);
+      }
+      if (keywords.length >= 8)
+        break;
+    }
+    return keywords;
+  }
+  buildCardFrontmatter(data) {
+    const escape = (s) => s.replace(/"/g, '\\"').replace(/\n/g, " ");
+    const lines = [
+      `doc_id: "${escape(data.docId)}"`,
+      `title: "${escape(data.title)}"`,
+      `path: "${escape(data.path)}"`,
+      `scope: "${data.scope}"`,
+      `domain: "${escape(data.domain)}"`,
+      `topic_primary: "${escape(data.topicPrimary)}"`,
+      `one_line_summary: "${escape(data.oneLineSummary)}"`,
+      `question_type: ""`
+    ];
+    if (data.tags.length) {
+      lines.push("tags:");
+      for (const tag of data.tags.slice(0, 10))
+        lines.push(`  - "${escape(tag)}"`);
+    } else {
+      lines.push("tags: []");
+    }
+    if (data.retrievalKeywords.length) {
+      lines.push("retrieval_keywords:");
+      for (const kw of data.retrievalKeywords.slice(0, 8))
+        lines.push(`  - "${escape(kw)}"`);
+    } else {
+      lines.push("retrieval_keywords: []");
+    }
+    if (data.relatedFiles.length) {
+      lines.push("related_files:");
+      for (const link of data.relatedFiles.slice(0, 20))
+        lines.push(`  - "${escape(link)}"`);
+    } else {
+      lines.push("related_files: []");
+    }
+    return lines.join("\n") + "\n";
+  }
+};
+
+// src/ui/main-view.ts
+var import_obsidian4 = require("obsidian");
 var VIEW_TYPE_RAG = "enhanced-rag-view";
-var MainRAGView = class extends import_obsidian3.ItemView {
+var MainRAGView = class extends import_obsidian4.ItemView {
   constructor(leaf) {
     super(leaf);
     this.messages = [];
@@ -2025,7 +2320,7 @@ var MainRAGView = class extends import_obsidian3.ItemView {
       if (msg.streaming) {
         bubble.createSpan({ text: msg.content || "\u601D\u8003\u4E2D..." });
       } else {
-        import_obsidian3.MarkdownRenderer.render(this.app, msg.content, bubble, "", this);
+        import_obsidian4.MarkdownRenderer.render(this.app, msg.content, bubble, "", this);
       }
     }
     this.threadEl.scrollTop = this.threadEl.scrollHeight;
@@ -2049,7 +2344,7 @@ var MainRAGView = class extends import_obsidian3.ItemView {
     if (!query)
       return;
     if (!this.onSearch) {
-      new import_obsidian3.Notice("\u641C\u7D22\u56DE\u8C03\u672A\u8BBE\u7F6E");
+      new import_obsidian4.Notice("\u641C\u7D22\u56DE\u8C03\u672A\u8BBE\u7F6E");
       return;
     }
     this.messages.push({ role: "user", content: query });
@@ -2080,9 +2375,9 @@ var MainRAGView = class extends import_obsidian3.ItemView {
 };
 
 // src/ui/unit-view.ts
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 var VIEW_TYPE_RAG_UNIT = "enhanced-rag-unit-view";
-var UnitDetailView = class extends import_obsidian4.ItemView {
+var UnitDetailView = class extends import_obsidian5.ItemView {
   constructor(leaf) {
     super(leaf);
     this.unit = null;
@@ -2151,9 +2446,9 @@ var UnitDetailView = class extends import_obsidian4.ItemView {
 };
 
 // src/ui/history-view.ts
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 var VIEW_TYPE_RAG_HISTORY = "enhanced-rag-history-view";
-var HistoryView = class extends import_obsidian5.ItemView {
+var HistoryView = class extends import_obsidian6.ItemView {
   constructor(leaf) {
     super(leaf);
     this.queries = [];
@@ -2255,7 +2550,7 @@ ${query}
   }
   return prompt;
 }
-var EnhancedRAGPlugin = class extends import_obsidian6.Plugin {
+var EnhancedRAGPlugin = class extends import_obsidian7.Plugin {
   constructor() {
     super(...arguments);
     this.settings = { ...DEFAULT_SETTINGS };
@@ -2270,6 +2565,7 @@ var EnhancedRAGPlugin = class extends import_obsidian6.Plugin {
     this.knowledgeGenerator = new KnowledgeGenerator(this.app.vault, this.settings);
     this.historyManager = new HistoryManager(this.app, pluginDir, this.settings.historyRetentionDays);
     this.cloudCache = new CloudCache(this.settings.cacheSize);
+    this.cardGenerator = new CardGenerator(this.app.vault);
     this.registerView(VIEW_TYPE_RAG, (leaf) => {
       this.mainView = new MainRAGView(leaf);
       this.setupMainViewCallbacks();
@@ -2294,6 +2590,11 @@ var EnhancedRAGPlugin = class extends import_obsidian6.Plugin {
       id: "rebuild-indexes",
       name: "\u91CD\u5EFA\u68C0\u7D22\u7D22\u5F15",
       callback: () => this.rebuildIndexes()
+    });
+    this.addCommand({
+      id: "rebuild-index-cards",
+      name: "\u91CD\u5EFA\u7D22\u5F15\u5361",
+      callback: () => this.rebuildIndexCards()
     });
     this.addSettingTab(new RAGSettingTab(this.app, this));
     this.registerEvent(
@@ -2479,13 +2780,26 @@ var EnhancedRAGPlugin = class extends import_obsidian6.Plugin {
    * Rebuild all indexes
    */
   async rebuildIndexes() {
-    new import_obsidian6.Notice("\u6B63\u5728\u91CD\u5EFA\u7D22\u5F15...");
+    new import_obsidian7.Notice("\u6B63\u5728\u91CD\u5EFA\u7D22\u5F15...");
     try {
       await this.retrievalManager.buildIndexes();
-      new import_obsidian6.Notice("\u7D22\u5F15\u91CD\u5EFA\u5B8C\u6210");
+      new import_obsidian7.Notice("\u7D22\u5F15\u91CD\u5EFA\u5B8C\u6210");
     } catch (error) {
       console.error("[RAG] Index rebuild failed:", error);
-      new import_obsidian6.Notice(`\u7D22\u5F15\u91CD\u5EFA\u5931\u8D25: ${error.message}`);
+      new import_obsidian7.Notice(`\u7D22\u5F15\u91CD\u5EFA\u5931\u8D25: ${error.message}`);
+    }
+  }
+  /**
+   * Rebuild all index cards
+   */
+  async rebuildIndexCards() {
+    new import_obsidian7.Notice("\u6B63\u5728\u91CD\u5EFA\u7D22\u5F15\u5361...");
+    try {
+      const count = await this.cardGenerator.generateAll(true);
+      new import_obsidian7.Notice(`\u7D22\u5F15\u5361\u91CD\u5EFA\u5B8C\u6210\uFF1A\u751F\u6210 ${count} \u5F20`);
+    } catch (error) {
+      console.error("[RAG] Index card rebuild failed:", error);
+      new import_obsidian7.Notice(`\u7D22\u5F15\u5361\u91CD\u5EFA\u5931\u8D25: ${error.message}`);
     }
   }
   /**
@@ -2493,38 +2807,52 @@ var EnhancedRAGPlugin = class extends import_obsidian6.Plugin {
    */
   async clearCache() {
     this.cloudCache.clear();
-    new import_obsidian6.Notice("\u7F13\u5B58\u5DF2\u6E05\u9664");
+    new import_obsidian7.Notice("\u7F13\u5B58\u5DF2\u6E05\u9664");
   }
   /**
    * Clear all history
    */
   async clearHistory() {
     await this.historyManager.clearHistory();
-    new import_obsidian6.Notice("\u5386\u53F2\u5DF2\u91CD\u7F6E");
+    new import_obsidian7.Notice("\u5386\u53F2\u5DF2\u91CD\u7F6E");
   }
   /**
    * Handle file modifications for incremental indexing
    */
   async onFileModify(file) {
-    if (file instanceof import_obsidian6.TFile && file.extension === "md") {
+    if (file instanceof import_obsidian7.TFile && file.extension === "md") {
+      if (file.path.startsWith("00_INDEX/"))
+        return;
       await this.retrievalManager.updateDocument(file.path);
+      if (this.settings.autoGenerateCards) {
+        await this.cardGenerator.generateCard(file);
+      }
     }
   }
   /**
    * Handle file deletion for index cleanup
    */
-  onFileDelete(file) {
-    if (file instanceof import_obsidian6.TFile) {
+  async onFileDelete(file) {
+    if (file instanceof import_obsidian7.TFile) {
       this.retrievalManager.removeDocument(file.path);
+      if (file.extension === "md" && this.settings.autoGenerateCards) {
+        await this.cardGenerator.deleteCard(file.basename);
+      }
     }
   }
   /**
    * Handle file rename for index update
    */
   async onFileRename(file, oldPath) {
-    if (file instanceof import_obsidian6.TFile && file.extension === "md") {
+    if (file instanceof import_obsidian7.TFile && file.extension === "md") {
+      if (file.path.startsWith("00_INDEX/"))
+        return;
       this.retrievalManager.removeDocument(oldPath);
       await this.retrievalManager.updateDocument(file.path);
+      if (this.settings.autoGenerateCards) {
+        const oldName = oldPath.split("/").pop()?.replace(/\.md$/, "") || "";
+        await this.cardGenerator.renameCard(oldName, file);
+      }
     }
   }
 };

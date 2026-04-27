@@ -66,6 +66,80 @@ export class RAGSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
+    // Embedding Configuration
+    containerEl.createEl("h3", { text: "Embedding 配置" });
+
+    new Setting(containerEl)
+      .setName("Embedding Model")
+      .setDesc("向量化模型（如 text-embedding-v4）")
+      .addText(text => text
+        .setPlaceholder("text-embedding-v4")
+        .setValue(this.plugin.settings.embeddingModel)
+        .onChange(async (value) => {
+          this.plugin.settings.embeddingModel = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName("Embedding Base URL")
+      .setDesc("Embedding API 地址（留空则与 API Base URL 相同）")
+      .addText(text => text
+        .setPlaceholder("https://dashscope.aliyuncs.com/compatible-mode/v1")
+        .setValue(this.plugin.settings.embeddingBaseUrl)
+        .onChange(async (value) => {
+          this.plugin.settings.embeddingBaseUrl = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName("Embedding 维度")
+      .setDesc("向量维度（text-embedding-v4 支持 64-2048）")
+      .addText(text => text
+        .setPlaceholder("1024")
+        .setValue(String(this.plugin.settings.embeddingDimensions))
+        .onChange(async (value) => {
+          const num = parseInt(value, 10);
+          if (!isNaN(num) && num > 0) {
+            this.plugin.settings.embeddingDimensions = num;
+            await this.plugin.saveSettings();
+          }
+        }));
+
+    // Rerank Configuration
+    containerEl.createEl("h3", { text: "Rerank 配置" });
+
+    new Setting(containerEl)
+      .setName("启用 Rerank")
+      .setDesc("使用 Rerank 模型对检索结果二次排序")
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.rerankEnabled)
+        .onChange(async (value) => {
+          this.plugin.settings.rerankEnabled = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName("Rerank Model")
+      .setDesc("排序模型（如 qwen3-rerank、gte-rerank-v2）")
+      .addText(text => text
+        .setPlaceholder("qwen3-rerank")
+        .setValue(this.plugin.settings.rerankModel)
+        .onChange(async (value) => {
+          this.plugin.settings.rerankModel = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName("Rerank Base URL")
+      .setDesc("Rerank API 地址（留空则与 API Base URL 相同）")
+      .addText(text => text
+        .setPlaceholder("https://dashscope.aliyuncs.com/compatible-mode/v1")
+        .setValue(this.plugin.settings.rerankBaseUrl)
+        .onChange(async (value) => {
+          this.plugin.settings.rerankBaseUrl = value;
+          await this.plugin.saveSettings();
+        }));
+
     // Weight Configuration
     containerEl.createEl("h3", { text: "检索权重配置" });
 
@@ -146,6 +220,16 @@ export class RAGSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
+    new Setting(containerEl)
+      .setName("自动生成索引卡")
+      .setDesc("文件保存时自动生成/更新索引卡到 00_INDEX/files/")
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.autoGenerateCards)
+        .onChange(async (value) => {
+          this.plugin.settings.autoGenerateCards = value;
+          await this.plugin.saveSettings();
+        }));
+
     // UI Configuration
     containerEl.createEl("h3", { text: "界面配置" });
 
@@ -179,6 +263,17 @@ export class RAGSettingTab extends PluginSettingTab {
         .setButtonText("重建")
         .onClick(async () => {
           await this.plugin.rebuildIndexes();
+          button.setButtonText("完成");
+          setTimeout(() => button.setButtonText("重建"), 2000);
+        }));
+
+    new Setting(containerEl)
+      .setName("重建索引卡")
+      .setDesc("扫描所有 Markdown 文件，重新生成 00_INDEX/files/ 下的索引卡")
+      .addButton(button => button
+        .setButtonText("重建")
+        .onClick(async () => {
+          await this.plugin.rebuildIndexCards();
           button.setButtonText("完成");
           setTimeout(() => button.setButtonText("重建"), 2000);
         }));
