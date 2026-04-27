@@ -1,0 +1,2530 @@
+"use strict";
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// src/main.ts
+var main_exports = {};
+__export(main_exports, {
+  default: () => EnhancedRAGPlugin
+});
+module.exports = __toCommonJS(main_exports);
+var import_obsidian6 = require("obsidian");
+
+// src/types.ts
+var DEFAULT_SETTINGS = {
+  apiKey: "",
+  apiBaseUrl: "https://api.deepseek.com/v1",
+  chatModel: "deepseek-reasoner",
+  mergeModel: "deepseek-chat",
+  defaultWeights: {
+    keyword: 0.4,
+    index: 0.35,
+    vector: 0.25
+  },
+  cacheSize: 100,
+  historyRetentionDays: 30,
+  enableQueryTypeDetection: true,
+  autoOpenChatPanel: true,
+  showKnowledgeUnits: true,
+  theme: "auto"
+};
+
+// src/settings.ts
+var import_obsidian = require("obsidian");
+var RAGSettingTab = class extends import_obsidian.PluginSettingTab {
+  constructor(app, plugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+  display() {
+    const { containerEl } = this;
+    containerEl.empty();
+    containerEl.createEl("h2", { text: "Enhanced RAG \u8BBE\u7F6E" });
+    containerEl.createEl("h3", { text: "API \u914D\u7F6E" });
+    new import_obsidian.Setting(containerEl).setName("API Key").setDesc("DeepSeek API \u5BC6\u94A5").addText((text) => text.setPlaceholder("sk-...").setValue(this.plugin.settings.apiKey).onChange(async (value) => {
+      this.plugin.settings.apiKey = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("API Base URL").setDesc("API \u57FA\u7840\u5730\u5740").addText((text) => text.setPlaceholder("https://api.deepseek.com/v1").setValue(this.plugin.settings.apiBaseUrl).onChange(async (value) => {
+      this.plugin.settings.apiBaseUrl = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("Chat Model").setDesc("\u7528\u4E8E\u5BF9\u8BDD\u548C\u63A8\u7406\u7684\u6A21\u578B").addText((text) => text.setPlaceholder("deepseek-reasoner").setValue(this.plugin.settings.chatModel).onChange(async (value) => {
+      this.plugin.settings.chatModel = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("Merge Model").setDesc("\u7528\u4E8E\u5185\u5BB9\u5408\u5E76\u7684\u6A21\u578B").addText((text) => text.setPlaceholder("deepseek-chat").setValue(this.plugin.settings.mergeModel).onChange(async (value) => {
+      this.plugin.settings.mergeModel = value;
+      await this.plugin.saveSettings();
+    }));
+    containerEl.createEl("h3", { text: "\u68C0\u7D22\u6743\u91CD\u914D\u7F6E" });
+    new import_obsidian.Setting(containerEl).setName("\u5173\u952E\u8BCD\u68C0\u7D22\u6743\u91CD").setDesc("\u5173\u952E\u8BCD\u68C0\u7D22\u7684\u9ED8\u8BA4\u6743\u91CD (0-1)").addSlider((slider) => slider.setLimits(0, 1, 0.05).setValue(this.plugin.settings.defaultWeights.keyword).setDynamicTooltip().onChange(async (value) => {
+      this.plugin.settings.defaultWeights.keyword = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("\u7D22\u5F15\u68C0\u7D22\u6743\u91CD").setDesc("\u7D22\u5F15\u68C0\u7D22\u7684\u9ED8\u8BA4\u6743\u91CD (0-1)").addSlider((slider) => slider.setLimits(0, 1, 0.05).setValue(this.plugin.settings.defaultWeights.index).setDynamicTooltip().onChange(async (value) => {
+      this.plugin.settings.defaultWeights.index = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("\u5411\u91CF\u68C0\u7D22\u6743\u91CD").setDesc("\u5411\u91CF\u68C0\u7D22\u7684\u9ED8\u8BA4\u6743\u91CD (0-1)").addSlider((slider) => slider.setLimits(0, 1, 0.05).setValue(this.plugin.settings.defaultWeights.vector).setDynamicTooltip().onChange(async (value) => {
+      this.plugin.settings.defaultWeights.vector = value;
+      await this.plugin.saveSettings();
+    }));
+    containerEl.createEl("h3", { text: "\u6027\u80FD\u914D\u7F6E" });
+    new import_obsidian.Setting(containerEl).setName("\u7F13\u5B58\u5927\u5C0F").setDesc("LRU \u7F13\u5B58\u6700\u5927\u6761\u76EE\u6570").addText((text) => text.setPlaceholder("100").setValue(String(this.plugin.settings.cacheSize)).onChange(async (value) => {
+      const num = parseInt(value, 10);
+      if (!isNaN(num) && num > 0) {
+        this.plugin.settings.cacheSize = num;
+        await this.plugin.saveSettings();
+      }
+    }));
+    new import_obsidian.Setting(containerEl).setName("\u5386\u53F2\u4FDD\u7559\u5929\u6570").setDesc("\u5386\u53F2\u6570\u636E\u4FDD\u7559\u5929\u6570").addText((text) => text.setPlaceholder("30").setValue(String(this.plugin.settings.historyRetentionDays)).onChange(async (value) => {
+      const num = parseInt(value, 10);
+      if (!isNaN(num) && num > 0) {
+        this.plugin.settings.historyRetentionDays = num;
+        await this.plugin.saveSettings();
+      }
+    }));
+    new import_obsidian.Setting(containerEl).setName("\u542F\u7528\u67E5\u8BE2\u7C7B\u578B\u68C0\u6D4B").setDesc("\u6839\u636E\u67E5\u8BE2\u7C7B\u578B\u81EA\u52A8\u8C03\u6574\u6743\u91CD").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableQueryTypeDetection).onChange(async (value) => {
+      this.plugin.settings.enableQueryTypeDetection = value;
+      await this.plugin.saveSettings();
+    }));
+    containerEl.createEl("h3", { text: "\u754C\u9762\u914D\u7F6E" });
+    new import_obsidian.Setting(containerEl).setName("\u81EA\u52A8\u6253\u5F00\u9762\u677F").setDesc("\u641C\u7D22\u65F6\u81EA\u52A8\u6253\u5F00 RAG \u9762\u677F").addToggle((toggle) => toggle.setValue(this.plugin.settings.autoOpenChatPanel).onChange(async (value) => {
+      this.plugin.settings.autoOpenChatPanel = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("\u663E\u793A\u77E5\u8BC6\u5355\u5143").setDesc("\u5728\u7ED3\u679C\u4E2D\u663E\u793A\u77E5\u8BC6\u5355\u5143").addToggle((toggle) => toggle.setValue(this.plugin.settings.showKnowledgeUnits).onChange(async (value) => {
+      this.plugin.settings.showKnowledgeUnits = value;
+      await this.plugin.saveSettings();
+    }));
+    containerEl.createEl("h3", { text: "\u6570\u636E\u7BA1\u7406" });
+    new import_obsidian.Setting(containerEl).setName("\u91CD\u5EFA\u7D22\u5F15").setDesc("\u91CD\u5EFA\u68C0\u7D22\u7D22\u5F15\uFF08\u6E05\u9664\u5E76\u91CD\u65B0\u6784\u5EFA\u5173\u952E\u8BCD\u548C\u5411\u91CF\u7D22\u5F15\uFF09").addButton((button) => button.setButtonText("\u91CD\u5EFA").onClick(async () => {
+      await this.plugin.rebuildIndexes();
+      button.setButtonText("\u5B8C\u6210");
+      setTimeout(() => button.setButtonText("\u91CD\u5EFA"), 2e3);
+    }));
+    new import_obsidian.Setting(containerEl).setName("\u6E05\u9664\u7F13\u5B58").setDesc("\u6E05\u9664\u6240\u6709\u7F13\u5B58\u6570\u636E").addButton((button) => button.setButtonText("\u6E05\u9664").onClick(async () => {
+      await this.plugin.clearCache();
+      button.setButtonText("\u5DF2\u6E05\u9664");
+      setTimeout(() => button.setButtonText("\u6E05\u9664"), 2e3);
+    }));
+    new import_obsidian.Setting(containerEl).setName("\u91CD\u7F6E\u5386\u53F2").setDesc("\u6E05\u9664\u6240\u6709\u67E5\u8BE2\u548C\u4EA4\u4E92\u5386\u53F2").addButton((button) => button.setButtonText("\u91CD\u7F6E").setWarning().onClick(async () => {
+      await this.plugin.clearHistory();
+      button.setButtonText("\u5DF2\u91CD\u7F6E");
+      setTimeout(() => button.setButtonText("\u91CD\u7F6E"), 2e3);
+    }));
+  }
+};
+
+// src/utils/file-utils.ts
+var import_obsidian2 = require("obsidian");
+async function fileToDocument(file, vault) {
+  const content = await vault.cachedRead(file);
+  const lines = content.split("\n");
+  let title = file.basename;
+  for (const line of lines) {
+    const match = line.match(/^#\s+(.+)/);
+    if (match) {
+      title = match[1].trim();
+      break;
+    }
+  }
+  const linkRegex = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+  const links = [];
+  let linkMatch;
+  while ((linkMatch = linkRegex.exec(content)) !== null) {
+    links.push(linkMatch[1].trim());
+  }
+  let summary = "";
+  let inParagraph = false;
+  for (const line of lines) {
+    if (line.startsWith("#"))
+      continue;
+    if (line.trim() === "") {
+      if (inParagraph)
+        break;
+      continue;
+    }
+    if (!inParagraph)
+      inParagraph = true;
+    summary += line + " ";
+    if (summary.length > 200)
+      break;
+  }
+  return {
+    id: file.path,
+    title,
+    content,
+    path: file.path,
+    summary: summary.trim(),
+    links: [...new Set(links)],
+    lastModified: file.stat.mtime
+  };
+}
+function getAllMarkdownFiles(vault) {
+  return vault.getMarkdownFiles();
+}
+async function readIndexCard(file, vault) {
+  try {
+    const content = await vault.cachedRead(file);
+    const data = JSON.parse(content);
+    return {
+      id: data.id || file.path,
+      title: data.title || file.basename,
+      summary: data.summary || "",
+      topics: data.topics || [],
+      links: data.links || [],
+      keywords: data.keywords || [],
+      wordCount: data.wordCount || 0,
+      lastModified: data.lastModified || file.stat.mtime,
+      filePath: data.filePath || ""
+    };
+  } catch {
+    return null;
+  }
+}
+async function getIndexCards(vault) {
+  const indexFolder = vault.getAbstractFileByPath("00_INDEX/files");
+  if (!indexFolder || !(indexFolder instanceof import_obsidian2.TFolder)) {
+    return [];
+  }
+  const cards = [];
+  for (const child of indexFolder.children) {
+    if (child instanceof import_obsidian2.TFile && child.extension === "json") {
+      const card = await readIndexCard(child, vault);
+      if (card)
+        cards.push(card);
+    }
+  }
+  return cards;
+}
+function tokenize(text) {
+  return text.toLowerCase().replace(/[^\w\u4e00-\u9fff\s]/g, " ").split(/\s+/).filter((token) => token.length > 1);
+}
+function generateId() {
+  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// src/retrieval/keyword-retriever.ts
+var KeywordRetriever = class {
+  constructor(vault) {
+    this.invertedIndex = {};
+    this.documents = /* @__PURE__ */ new Map();
+    this.indexBuilt = false;
+    this.vault = vault;
+  }
+  /**
+   * Build or rebuild the inverted index
+   */
+  async buildIndex() {
+    this.invertedIndex = {};
+    this.documents.clear();
+    const files = getAllMarkdownFiles(this.vault);
+    for (const file of files) {
+      const doc = await fileToDocument(file, this.vault);
+      this.documents.set(doc.id, doc);
+      const tokens = tokenize(doc.title + " " + doc.content);
+      for (const token of tokens) {
+        if (!this.invertedIndex[token]) {
+          this.invertedIndex[token] = [];
+        }
+        if (!this.invertedIndex[token].includes(doc.id)) {
+          this.invertedIndex[token].push(doc.id);
+        }
+      }
+    }
+    this.indexBuilt = true;
+    console.log(`[RAG] Keyword index built: ${this.documents.size} documents, ${Object.keys(this.invertedIndex).length} terms`);
+  }
+  /**
+   * Search by keywords
+   */
+  async search(query, options = { limit: 50 }) {
+    if (!this.indexBuilt) {
+      await this.buildIndex();
+    }
+    const queryTokens = tokenize(query);
+    if (queryTokens.length === 0)
+      return [];
+    const scores = /* @__PURE__ */ new Map();
+    for (const token of queryTokens) {
+      const docIds = this.invertedIndex[token] || [];
+      const idf = Math.log((this.documents.size + 1) / (docIds.length + 1));
+      for (const docId of docIds) {
+        const currentScore = scores.get(docId) || 0;
+        scores.set(docId, currentScore + idf);
+      }
+    }
+    const sorted = [...scores.entries()].sort((a, b) => b[1] - a[1]).slice(0, options.limit);
+    const maxScore = sorted.length > 0 ? sorted[0][1] : 1;
+    const results = [];
+    for (const [docId, score] of sorted) {
+      const doc = this.documents.get(docId);
+      if (!doc)
+        continue;
+      const snippet = this.extractSnippet(doc.content, queryTokens);
+      results.push({
+        docId,
+        title: doc.title,
+        path: doc.path,
+        score: score / maxScore,
+        snippet,
+        source: "keyword"
+      });
+    }
+    return results;
+  }
+  /**
+   * Extract a snippet containing query terms
+   */
+  extractSnippet(content, tokens) {
+    const sentences = content.split(/[。！？\n.!?]+/);
+    const lowerTokens = tokens.map((t) => t.toLowerCase());
+    for (const sentence of sentences) {
+      const lowerSentence = sentence.toLowerCase();
+      const hasMatch = lowerTokens.some((token) => lowerSentence.includes(token));
+      if (hasMatch && sentence.trim().length > 10) {
+        return sentence.trim().substring(0, 200);
+      }
+    }
+    return content.substring(0, 200).trim();
+  }
+  /**
+   * Get index statistics
+   */
+  getStats() {
+    return {
+      documentCount: this.documents.size,
+      termCount: Object.keys(this.invertedIndex).length,
+      indexed: this.indexBuilt
+    };
+  }
+  /**
+   * Incremental update: add or update a document
+   */
+  async updateDocument(filePath) {
+    const file = this.vault.getAbstractFileByPath(filePath);
+    if (!file || !("stat" in file))
+      return;
+    const oldDoc = this.documents.get(filePath);
+    if (oldDoc) {
+      const oldTokens = tokenize(oldDoc.title + " " + oldDoc.content);
+      for (const token of oldTokens) {
+        if (this.invertedIndex[token]) {
+          this.invertedIndex[token] = this.invertedIndex[token].filter((id) => id !== filePath);
+          if (this.invertedIndex[token].length === 0) {
+            delete this.invertedIndex[token];
+          }
+        }
+      }
+    }
+    const doc = await fileToDocument(file, this.vault);
+    this.documents.set(doc.id, doc);
+    const tokens = tokenize(doc.title + " " + doc.content);
+    for (const token of tokens) {
+      if (!this.invertedIndex[token]) {
+        this.invertedIndex[token] = [];
+      }
+      if (!this.invertedIndex[token].includes(doc.id)) {
+        this.invertedIndex[token].push(doc.id);
+      }
+    }
+  }
+  /**
+   * Remove a document from the index
+   */
+  removeDocument(filePath) {
+    const doc = this.documents.get(filePath);
+    if (!doc)
+      return;
+    const tokens = tokenize(doc.title + " " + doc.content);
+    for (const token of tokens) {
+      if (this.invertedIndex[token]) {
+        this.invertedIndex[token] = this.invertedIndex[token].filter((id) => id !== filePath);
+        if (this.invertedIndex[token].length === 0) {
+          delete this.invertedIndex[token];
+        }
+      }
+    }
+    this.documents.delete(filePath);
+  }
+};
+
+// src/retrieval/index-retriever.ts
+var IndexCardStore = class {
+  constructor(vault) {
+    this.cardsByPath = /* @__PURE__ */ new Map();
+    this.cardsById = /* @__PURE__ */ new Map();
+    this.allKnownPaths = /* @__PURE__ */ new Set();
+    this.loaded = false;
+    this.vault = vault;
+  }
+  /**
+   * Load all index cards and build path mappings
+   */
+  async loadIndex() {
+    const cards = await getIndexCards(this.vault);
+    this.cardsByPath.clear();
+    this.cardsById.clear();
+    this.allKnownPaths.clear();
+    for (const card of cards) {
+      const path = card.filePath || card.id;
+      this.cardsByPath.set(path.toLowerCase(), card);
+      this.cardsById.set(card.id, card);
+      this.allKnownPaths.add(path.toLowerCase());
+      const basename = path.replace(/\.md$/, "").split("/").pop()?.toLowerCase();
+      if (basename) {
+        this.allKnownPaths.add(basename);
+      }
+    }
+    this.loaded = true;
+    console.log(`[RAG] Index card store loaded: ${cards.length} cards`);
+  }
+  /**
+   * Get a card by file path
+   */
+  getCardByPath(path) {
+    if (!this.loaded)
+      return void 0;
+    return this.cardsByPath.get(path.toLowerCase());
+  }
+  /**
+   * Get cards by multiple paths (on-demand reading)
+   */
+  getCardsByPaths(paths) {
+    const result = /* @__PURE__ */ new Map();
+    for (const p of paths) {
+      const card = this.cardsByPath.get(p.toLowerCase());
+      if (card)
+        result.set(p, card);
+    }
+    return result;
+  }
+  /**
+   * Get linked file paths from a card (Wiki Link expansion).
+   * Validates links against known file paths.
+   */
+  getLinkedPaths(cardPath) {
+    const card = this.cardsByPath.get(cardPath.toLowerCase());
+    if (!card)
+      return [];
+    const linked = [];
+    const allLinks = [...card.links || [], ...card.keywords || []];
+    for (const link of allLinks) {
+      const clean = link.trim().replace(/\.md$/, "").toLowerCase();
+      if (this.allKnownPaths.has(clean)) {
+        linked.push(link.trim());
+        continue;
+      }
+      const namePart = clean.split("/").pop() || clean;
+      if (this.allKnownPaths.has(namePart)) {
+        linked.push(link.trim());
+      }
+    }
+    return [...new Set(linked)];
+  }
+  /**
+   * Resolve a link name to a known file path
+   */
+  resolveLink(linkName) {
+    const clean = linkName.trim().replace(/\.md$/, "").toLowerCase();
+    if (this.cardsByPath.has(clean)) {
+      return clean;
+    }
+    const namePart = clean.split("/").pop() || clean;
+    for (const [path] of this.cardsByPath) {
+      const pathBasename = path.split("/").pop()?.replace(/\.md$/, "");
+      if (pathBasename === namePart) {
+        return path;
+      }
+    }
+    return null;
+  }
+  /**
+   * Get all loaded cards
+   */
+  getAllCards() {
+    return [...this.cardsByPath.values()];
+  }
+  /**
+   * Get statistics
+   */
+  getStats() {
+    return {
+      cardCount: this.cardsByPath.size,
+      loaded: this.loaded
+    };
+  }
+};
+
+// src/cloud/api.ts
+var MAX_RETRIES = 3;
+var RETRY_DELAY_MS = 1e3;
+var CloudAPIClient = class {
+  constructor(settings) {
+    this.settings = settings;
+  }
+  updateSettings(settings) {
+    this.settings = settings;
+  }
+  /**
+   * Call the chat completion API
+   */
+  async chat(request) {
+    if (!this.settings.apiKey) {
+      throw new Error("API key not configured. Please set it in plugin settings.");
+    }
+    const url = `${this.settings.apiBaseUrl}/chat/completions`;
+    let lastError = null;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${this.settings.apiKey}`
+          },
+          body: JSON.stringify(request)
+        });
+        if (!response.ok) {
+          const errorText = await response.text();
+          if (response.status === 429) {
+            const retryAfter = response.headers.get("Retry-After");
+            const delay = retryAfter ? parseInt(retryAfter, 10) * 1e3 : RETRY_DELAY_MS * (attempt + 1);
+            await this.sleep(delay);
+            continue;
+          }
+          throw new Error(`API error ${response.status}: ${errorText}`);
+        }
+        const data = await response.json();
+        if (data.choices && data.choices.length > 0) {
+          return data.choices[0].message.content;
+        }
+        throw new Error("No response choices returned");
+      } catch (error) {
+        lastError = error;
+        if (attempt < MAX_RETRIES - 1) {
+          await this.sleep(RETRY_DELAY_MS * (attempt + 1));
+        }
+      }
+    }
+    throw lastError || new Error("API call failed after retries");
+  }
+  /**
+   * Generate embeddings for text
+   */
+  async embed(text) {
+    if (!this.settings.apiKey) {
+      throw new Error("API key not configured");
+    }
+    const url = `${this.settings.apiBaseUrl}/embeddings`;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${this.settings.apiKey}`
+          },
+          body: JSON.stringify({
+            model: "deepseek-embed",
+            input: text
+          })
+        });
+        if (!response.ok) {
+          if (response.status === 429) {
+            const retryAfter = response.headers.get("Retry-After");
+            const delay = retryAfter ? parseInt(retryAfter, 10) * 1e3 : RETRY_DELAY_MS * (attempt + 1);
+            await this.sleep(delay);
+            continue;
+          }
+          const errorText = await response.text();
+          throw new Error(`Embedding API error ${response.status}: ${errorText}`);
+        }
+        const data = await response.json();
+        if (data.data && data.data.length > 0) {
+          return data.data[0].embedding;
+        }
+        throw new Error("No embedding returned");
+      } catch (error) {
+        if (attempt < MAX_RETRIES - 1) {
+          await this.sleep(RETRY_DELAY_MS * (attempt + 1));
+        } else {
+          throw error;
+        }
+      }
+    }
+    throw new Error("Embedding API call failed after retries");
+  }
+  sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+};
+
+// src/utils/cache-utils.ts
+var LRUCache = class {
+  constructor(maxSize) {
+    this.maxSize = maxSize;
+    this.cache = /* @__PURE__ */ new Map();
+  }
+  get(key) {
+    if (!this.cache.has(key))
+      return void 0;
+    const value = this.cache.get(key);
+    this.cache.delete(key);
+    this.cache.set(key, value);
+    return value;
+  }
+  set(key, value) {
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+    } else if (this.cache.size >= this.maxSize) {
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey !== void 0) {
+        this.cache.delete(firstKey);
+      }
+    }
+    this.cache.set(key, value);
+  }
+  has(key) {
+    return this.cache.has(key);
+  }
+  delete(key) {
+    return this.cache.delete(key);
+  }
+  clear() {
+    this.cache.clear();
+  }
+  get size() {
+    return this.cache.size;
+  }
+  entries() {
+    return this.cache.entries();
+  }
+};
+function hashString(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+// src/retrieval/vector-retriever.ts
+var VectorRetriever = class {
+  constructor(vault, settings) {
+    this.documents = /* @__PURE__ */ new Map();
+    this.embeddings = /* @__PURE__ */ new Map();
+    this.loaded = false;
+    this.vault = vault;
+    this.settings = settings;
+    this.client = new CloudAPIClient(settings);
+    this.embeddingCache = new LRUCache(100);
+  }
+  updateSettings(settings) {
+    this.settings = settings;
+    this.client.updateSettings(settings);
+  }
+  /**
+   * Build vector index by computing embeddings for all documents
+   */
+  async buildIndex() {
+    if (!this.settings.apiKey) {
+      console.warn("[RAG] Vector search disabled: no API key");
+      this.loaded = true;
+      return;
+    }
+    this.documents.clear();
+    this.embeddings.clear();
+    const files = getAllMarkdownFiles(this.vault);
+    for (const file of files) {
+      const doc = await fileToDocument(file, this.vault);
+      this.documents.set(doc.id, doc);
+    }
+    console.log(`[RAG] Vector index building for ${this.documents.size} documents...`);
+    const docEntries = [...this.documents.entries()];
+    const batchSize = 5;
+    for (let i = 0; i < docEntries.length; i += batchSize) {
+      const batch = docEntries.slice(i, i + batchSize);
+      const promises = batch.map(async ([docId, doc]) => {
+        const text = `${doc.title}
+${doc.summary || doc.content.substring(0, 500)}`;
+        const hashKey = hashString(text);
+        const cached = this.embeddingCache.get(hashKey);
+        if (cached) {
+          this.embeddings.set(docId, cached);
+          return;
+        }
+        try {
+          const embedding = await this.client.embed(text);
+          this.embeddings.set(docId, embedding);
+          this.embeddingCache.set(hashKey, embedding);
+        } catch (error) {
+          console.warn(`[RAG] Failed to embed ${docId}:`, error);
+        }
+      });
+      await Promise.all(promises);
+      if (i + batchSize < docEntries.length) {
+        await this.sleep(200);
+      }
+    }
+    this.loaded = true;
+    console.log(`[RAG] Vector index built: ${this.embeddings.size} embeddings`);
+  }
+  /**
+   * Search using vector similarity
+   */
+  async search(query, options = { limit: 30 }) {
+    if (!this.settings.apiKey) {
+      return [];
+    }
+    if (!this.loaded) {
+      await this.buildIndex();
+    }
+    if (this.embeddings.size === 0) {
+      return [];
+    }
+    let queryEmbedding;
+    const queryHash = hashString(query);
+    const cachedQuery = this.embeddingCache.get(`query:${queryHash}`);
+    if (cachedQuery) {
+      queryEmbedding = cachedQuery;
+    } else {
+      try {
+        queryEmbedding = await this.client.embed(query);
+        this.embeddingCache.set(`query:${queryHash}`, queryEmbedding);
+      } catch (error) {
+        console.error("[RAG] Failed to embed query:", error);
+        return [];
+      }
+    }
+    const similarities = [];
+    for (const [docId, embedding] of this.embeddings) {
+      const similarity = this.cosineSimilarity(queryEmbedding, embedding);
+      similarities.push({ docId, similarity });
+    }
+    similarities.sort((a, b) => b.similarity - a.similarity);
+    const top = similarities.slice(0, options.limit);
+    const maxScore = top.length > 0 ? top[0].similarity : 1;
+    const results = [];
+    for (const { docId, similarity } of top) {
+      const doc = this.documents.get(docId);
+      if (!doc)
+        continue;
+      results.push({
+        docId,
+        title: doc.title,
+        path: doc.path,
+        score: similarity / maxScore,
+        snippet: doc.summary || doc.content.substring(0, 200),
+        source: "vector"
+      });
+    }
+    return results;
+  }
+  /**
+   * Vector search with neighbor expansion
+   *
+   * 1. Standard search to get top-N
+   * 2. Take top-K seeds, find nearest neighbors via embedding similarity
+   * 3. Merge and deduplicate, expansion results get 0.7x score
+   */
+  async searchWithExpansion(query, limit = 20, expandTopK = 3, expandNeighbors = 5) {
+    const initial = await this.search(query, { limit });
+    if (!initial.length || expandTopK <= 0)
+      return initial;
+    const seenIds = new Set(initial.map((r) => r.docId));
+    const expanded = [...initial];
+    const seeds = initial.slice(0, expandTopK);
+    for (const seed of seeds) {
+      const seedDoc = this.documents.get(seed.docId);
+      if (!seedDoc)
+        continue;
+      const seedText = seedDoc.summary || seedDoc.content.substring(0, 200);
+      const neighbors = await this.search(seedText, {
+        limit: expandNeighbors + seenIds.size
+      });
+      for (const n of neighbors) {
+        if (!seenIds.has(n.docId)) {
+          seenIds.add(n.docId);
+          n.score *= 0.7;
+          expanded.push(n);
+        }
+      }
+    }
+    expanded.sort((a, b) => b.score - a.score);
+    return expanded;
+  }
+  /**
+   * Compute cosine similarity between two vectors
+   */
+  cosineSimilarity(a, b) {
+    if (a.length !== b.length)
+      return 0;
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let i = 0; i < a.length; i++) {
+      dotProduct += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+    const denominator = Math.sqrt(normA) * Math.sqrt(normB);
+    if (denominator === 0)
+      return 0;
+    return dotProduct / denominator;
+  }
+  /**
+   * Get statistics
+   */
+  getStats() {
+    return {
+      documentCount: this.documents.size,
+      embeddingCount: this.embeddings.size,
+      loaded: this.loaded
+    };
+  }
+  sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+};
+
+// src/fusion/ranker.ts
+function normalizeScores(results) {
+  if (results.length === 0)
+    return /* @__PURE__ */ new Map();
+  const maxScore = Math.max(...results.map((r) => r.score)) || 1;
+  return new Map(results.map((r) => [r.docId, r.score / maxScore]));
+}
+function rankArticles(keywordResults, vectorResults, expansionPaths) {
+  const expansionSet = new Set(expansionPaths);
+  const kwScores = normalizeScores(keywordResults);
+  const vecScores = normalizeScores(vectorResults);
+  const allDocs = /* @__PURE__ */ new Map();
+  for (const r of keywordResults)
+    allDocs.set(r.docId, r);
+  for (const r of vectorResults)
+    allDocs.set(r.docId, r);
+  const ranked = [];
+  for (const [docId, doc] of allDocs) {
+    const ks = kwScores.get(docId) || 0;
+    const vs = vecScores.get(docId) || 0;
+    const retrievalScore = ks * 0.55 + vs * 0.45;
+    const crossBonus = ks > 0 && vs > 0 ? 0.15 : 0;
+    const isExpanded = expansionSet.has(docId);
+    const expansionBoost = isExpanded ? 0.3 : 0;
+    const finalScore = retrievalScore + crossBonus + expansionBoost;
+    ranked.push({
+      docId,
+      title: doc.title,
+      path: doc.path,
+      snippet: doc.snippet,
+      retrievalScore,
+      expansionBoost,
+      cardBonus: 0,
+      finalScore,
+      fromExpansion: isExpanded
+    });
+  }
+  ranked.sort((a, b) => b.finalScore - a.finalScore);
+  return ranked;
+}
+function boostByCardFields(ranked, query, cards) {
+  const queryLower = query.toLowerCase();
+  const queryTokens = new Set(queryLower.split(/\s+/));
+  for (const article of ranked) {
+    const card = cards.get(article.docId);
+    if (!card)
+      continue;
+    let bonus = 0;
+    const keywords = card.retrievalKeywords || card.keywords || [];
+    for (const kw of keywords) {
+      const kwLower = kw.toLowerCase();
+      if (queryLower.includes(kwLower) || kwLower.includes(queryLower)) {
+        bonus += 0.12;
+        break;
+      }
+      for (const t of queryTokens) {
+        if (kwLower.includes(t)) {
+          bonus += 0.06;
+          break;
+        }
+      }
+    }
+    const topic = card.topicPrimary || (card.topics?.[0] || "");
+    if (topic && (queryLower.includes(topic.toLowerCase()) || topic.toLowerCase().includes(queryLower))) {
+      bonus += 0.08;
+    }
+    if (card.domain) {
+      bonus += 0.03;
+    }
+    article.cardBonus = Math.min(bonus, 0.25);
+    article.finalScore += article.cardBonus;
+    article.card = card;
+  }
+  ranked.sort((a, b) => b.finalScore - a.finalScore);
+  return ranked;
+}
+
+// src/retrieval/manager.ts
+var RetrievalManager = class {
+  constructor(vault, settings) {
+    this.vault = vault;
+    this.settings = settings;
+    this.keywordRetriever = new KeywordRetriever(vault);
+    this.cardStore = new IndexCardStore(vault);
+    this.vectorRetriever = new VectorRetriever(vault, settings);
+  }
+  updateSettings(settings) {
+    this.settings = settings;
+    this.vectorRetriever.updateSettings(settings);
+  }
+  /**
+   * Build all indexes (keyword + cards + vector)
+   */
+  async buildIndexes() {
+    console.log("[RAG] Building all indexes...");
+    await Promise.all([
+      this.keywordRetriever.buildIndex(),
+      this.cardStore.loadIndex(),
+      this.vectorRetriever.buildIndex()
+    ]);
+    console.log("[RAG] All indexes built");
+  }
+  /**
+   * Pipeline search: core retrieval → expansion → on-demand cards → ranking
+   */
+  async pipelineSearch(query, limit = 10) {
+    const [kwResults, vecResults] = await Promise.all([
+      this.keywordRetriever.search(query, { limit: 50 }),
+      this.settings.apiKey ? this.vectorRetriever.searchWithExpansion(query, 20, 3, 5) : Promise.resolve([])
+    ]);
+    const coreSet = /* @__PURE__ */ new Set();
+    for (const r of kwResults.slice(0, 20))
+      coreSet.add(r.docId);
+    for (const r of vecResults.slice(0, 20))
+      coreSet.add(r.docId);
+    const corePaths = [...coreSet];
+    const expansionPaths = [];
+    for (const path of corePaths) {
+      const linked = this.cardStore.getLinkedPaths(path);
+      for (const lp of linked) {
+        if (!coreSet.has(lp)) {
+          expansionPaths.push(lp);
+        }
+      }
+    }
+    const allCandidatePaths = [...corePaths, ...expansionPaths];
+    const cards = this.cardStore.getCardsByPaths(allCandidatePaths);
+    let ranked = rankArticles(kwResults, vecResults, expansionPaths);
+    ranked = boostByCardFields(ranked, query, cards);
+    console.log(
+      `[RAG] Pipeline: keyword=${kwResults.length}, vector=${vecResults.length}, expansion=${expansionPaths.length}, ranked=${ranked.length}`
+    );
+    return { ranked: ranked.slice(0, limit), cards };
+  }
+  /**
+   * Update a single document in keyword index
+   */
+  async updateDocument(filePath) {
+    await this.keywordRetriever.updateDocument(filePath);
+  }
+  /**
+   * Remove a document from keyword index
+   */
+  removeDocument(filePath) {
+    this.keywordRetriever.removeDocument(filePath);
+  }
+  /**
+   * Get statistics for all retrievers
+   */
+  getStats() {
+    return {
+      keyword: this.keywordRetriever.getStats(),
+      cards: this.cardStore.getStats(),
+      vector: this.vectorRetriever.getStats()
+    };
+  }
+};
+
+// src/fusion/result-fusion.ts
+var ResultFusion = class {
+  /**
+   * Apply history boost to ranked results
+   */
+  applyHistoryBoost(results, topicPreferences) {
+    return results.map((result) => {
+      let boost = 0;
+      const titleLower = result.title.toLowerCase();
+      for (const [topic, preference] of Object.entries(topicPreferences)) {
+        if (titleLower.includes(topic.toLowerCase())) {
+          boost += preference * 0.3;
+        }
+      }
+      return {
+        ...result,
+        finalScore: result.finalScore + boost
+      };
+    }).sort((a, b) => b.finalScore - a.finalScore);
+  }
+};
+
+// src/fusion/query-analyzer.ts
+var QueryAnalyzer = class {
+  constructor() {
+    // Chinese patterns
+    this.patterns = {
+      definition: [
+        /什么是/,
+        /什么叫/,
+        /定义/,
+        /含义/,
+        /意思/,
+        /概念/,
+        /是什么/,
+        /怎样理解/
+      ],
+      procedure: [
+        /怎么/,
+        /如何/,
+        /步骤/,
+        /方法/,
+        /做法/,
+        /流程/,
+        /过程/,
+        /教程/
+      ],
+      comparison: [
+        /区别/,
+        /不同/,
+        /比较/,
+        /对比/,
+        /差异/,
+        /vs/i,
+        /versus/i,
+        /哪个[好坏快慢]/
+      ],
+      explanation: [
+        /为什么/,
+        /原因/,
+        /解释/,
+        /说明/,
+        /原理/,
+        /机制/
+      ],
+      summarization: [
+        /总结/,
+        /概述/,
+        /概要/,
+        /综述/,
+        /简述/,
+        /概括/
+      ]
+    };
+  }
+  /**
+   * Detect query type from query text
+   */
+  detect(query) {
+    const scores = {
+      ["definition" /* DEFINITION */]: 0,
+      ["procedure" /* PROCEDURE */]: 0,
+      ["comparison" /* COMPARISON */]: 0,
+      ["explanation" /* EXPLANATION */]: 0,
+      ["summarization" /* SUMMARIZATION */]: 0
+    };
+    for (const [type, patterns] of Object.entries(this.patterns)) {
+      for (const pattern of patterns) {
+        if (pattern.test(query)) {
+          scores[type] += 1;
+        }
+      }
+    }
+    let maxScore = 0;
+    let detectedType = "explanation" /* EXPLANATION */;
+    for (const [type, score] of Object.entries(scores)) {
+      if (score > maxScore) {
+        maxScore = score;
+        detectedType = type;
+      }
+    }
+    return detectedType;
+  }
+};
+
+// src/knowledge/cluster.ts
+var DocumentClusterer = class {
+  constructor() {
+    this.indexCards = [];
+  }
+  setIndexCards(cards) {
+    this.indexCards = cards;
+  }
+  /**
+   * Cluster documents by topic based on index cards and links
+   */
+  cluster(documents, topics) {
+    const clusters = topics.map((topic) => ({
+      topic,
+      documents: [],
+      coreDocument: null
+    }));
+    const assigned = /* @__PURE__ */ new Set();
+    for (const doc of documents) {
+      const card = this.indexCards.find(
+        (c) => c.filePath === doc.id || c.title.toLowerCase() === doc.title.toLowerCase()
+      );
+      if (card && card.topics.length > 0) {
+        for (const cluster of clusters) {
+          if (card.topics.some((t) => this.topicMatch(t, cluster.topic))) {
+            cluster.documents.push(doc);
+            assigned.add(doc.id);
+            break;
+          }
+        }
+      }
+    }
+    for (const doc of documents) {
+      if (assigned.has(doc.id))
+        continue;
+      let bestCluster = null;
+      let bestScore = 0;
+      for (const cluster of clusters) {
+        const score = this.computeTopicScore(doc, cluster.topic);
+        if (score > bestScore) {
+          bestScore = score;
+          bestCluster = cluster;
+        }
+      }
+      if (bestCluster && bestScore > 0.1) {
+        bestCluster.documents.push(doc);
+      }
+    }
+    for (const cluster of clusters) {
+      cluster.coreDocument = this.findCoreDocument(cluster.documents);
+    }
+    return clusters.filter((c) => c.documents.length > 0);
+  }
+  /**
+   * Check if two topics match
+   */
+  topicMatch(topic1, topic2) {
+    const t1 = topic1.toLowerCase();
+    const t2 = topic2.toLowerCase();
+    return t1.includes(t2) || t2.includes(t1);
+  }
+  /**
+   * Compute topic relevance score for a document
+   */
+  computeTopicScore(doc, topic) {
+    let score = 0;
+    const topicLower = topic.toLowerCase();
+    const topicWords = topicLower.split(/\s+/);
+    const titleLower = doc.title.toLowerCase();
+    if (titleLower.includes(topicLower))
+      score += 3;
+    for (const word of topicWords) {
+      if (titleLower.includes(word))
+        score += 1;
+    }
+    if (doc.summary) {
+      const summaryLower = doc.summary.toLowerCase();
+      if (summaryLower.includes(topicLower))
+        score += 2;
+      for (const word of topicWords) {
+        if (summaryLower.includes(word))
+          score += 0.5;
+      }
+    }
+    return score;
+  }
+  /**
+   * Find the core document in a cluster (most referenced)
+   */
+  findCoreDocument(documents) {
+    if (documents.length === 0)
+      return null;
+    if (documents.length === 1)
+      return documents[0];
+    const linkCounts = /* @__PURE__ */ new Map();
+    for (const doc of documents) {
+      if (doc.links) {
+        for (const link of doc.links) {
+          const linkedDoc = documents.find(
+            (d) => d.title.toLowerCase() === link.toLowerCase()
+          );
+          if (linkedDoc) {
+            linkCounts.set(linkedDoc.id, (linkCounts.get(linkedDoc.id) || 0) + 1);
+          }
+        }
+      }
+    }
+    let maxLinks = 0;
+    let coreDoc = documents[0];
+    for (const [docId, count] of linkCounts) {
+      if (count > maxLinks) {
+        maxLinks = count;
+        const doc = documents.find((d) => d.id === docId);
+        if (doc)
+          coreDoc = doc;
+      }
+    }
+    return coreDoc;
+  }
+};
+
+// src/knowledge/merger.ts
+var ContentMerger = class {
+  constructor(batchProcessor) {
+    this.batchProcessor = batchProcessor;
+  }
+  /**
+   * Merge documents in clusters into knowledge units
+   */
+  async merge(clusters, query) {
+    if (clusters.length === 0)
+      return [];
+    const units = await this.batchProcessor.generateKnowledgeUnits(clusters, query);
+    for (let i = 0; i < units.length && i < clusters.length; i++) {
+      const unit = units[i];
+      const cluster = clusters[i];
+      unit.sourceCount = cluster.documents.length;
+      unit.sourceDocuments = cluster.documents.map((d) => d.id);
+      unit.relevanceScore = 1 - i * 0.1;
+    }
+    return units;
+  }
+  /**
+   * Simple local merge (fallback when API is not available)
+   */
+  mergeLocally(clusters, query) {
+    return clusters.map((cluster, index) => {
+      const allContent = cluster.documents.map((d) => d.summary || d.content.substring(0, 200)).join(" ");
+      const sentences = allContent.split(/[。！？\n.!?]+/).filter((s) => s.trim().length > 10).slice(0, 5);
+      return {
+        id: `ku-local-${Date.now()}-${index}`,
+        topic: cluster.topic,
+        summary: sentences.join("\u3002") + "\u3002",
+        keyPoints: sentences.slice(0, 3).map((s) => s.trim()),
+        sourceCount: cluster.documents.length,
+        relevanceScore: 1 - index * 0.1,
+        historyBoost: 0,
+        suggestedUsage: `\u57FA\u4E8E ${cluster.documents.length} \u7BC7\u6587\u6863\u7684\u7EFC\u5408\u4FE1\u606F`,
+        sourceDocuments: cluster.documents.map((d) => d.id)
+      };
+    });
+  }
+};
+
+// src/cloud/cache.ts
+var CloudCache = class {
+  constructor(maxSize = 100) {
+    this.maxSize = maxSize;
+    this.cache = new LRUCache(maxSize);
+  }
+  /**
+   * Get cached response for a query
+   */
+  get(query, model) {
+    const key = this.generateKey(query, model);
+    const entry = this.cache.get(key);
+    if (!entry)
+      return null;
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1e3;
+    if (Date.now() - entry.timestamp > thirtyDaysMs) {
+      this.cache.delete(key);
+      return null;
+    }
+    return entry.response;
+  }
+  /**
+   * Store a response in cache
+   */
+  set(query, model, response) {
+    const key = this.generateKey(query, model);
+    this.cache.set(key, {
+      response,
+      timestamp: Date.now(),
+      queryHash: key
+    });
+  }
+  /**
+   * Clear all cached entries
+   */
+  clear() {
+    this.cache.clear();
+  }
+  /**
+   * Get cache stats
+   */
+  getStats() {
+    return {
+      size: this.cache.size,
+      maxSize: this.maxSize
+    };
+  }
+  generateKey(query, model) {
+    return `${model}:${hashString(query)}`;
+  }
+};
+
+// src/cloud/batch-processor.ts
+var BatchProcessor = class {
+  constructor(settings) {
+    this.settings = settings;
+    this.client = new CloudAPIClient(settings);
+    this.cache = new CloudCache(settings.cacheSize);
+  }
+  updateSettings(settings) {
+    this.settings = settings;
+    this.client.updateSettings(settings);
+  }
+  /**
+   * Generate knowledge units from document clusters in a single API call
+   */
+  async generateKnowledgeUnits(clusters, query) {
+    if (clusters.length === 0)
+      return [];
+    const cacheKey = this.buildCacheKey(clusters, query);
+    const cached = this.cache.get(cacheKey, this.settings.mergeModel);
+    if (cached) {
+      try {
+        return this.parseKnowledgeUnits(JSON.parse(cached));
+      } catch {
+      }
+    }
+    const prompt = this.buildBatchPrompt(clusters, query);
+    const response = await this.client.chat({
+      model: this.settings.mergeModel,
+      messages: [
+        {
+          role: "system",
+          content: "\u4F60\u662F\u4E00\u4E2A\u77E5\u8BC6\u6574\u7406\u4E13\u5BB6\u3002\u8BF7\u6839\u636E\u63D0\u4F9B\u7684\u6587\u6863\u7C07\uFF0C\u4E3A\u6BCF\u4E2A\u4E3B\u9898\u751F\u6210\u4E00\u4E2A\u77E5\u8BC6\u5355\u5143\u3002\u8F93\u51FA\u5FC5\u987B\u662F\u6709\u6548\u7684JSON\u6570\u7EC4\u683C\u5F0F\u3002"
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      max_tokens: 8e3,
+      temperature: 0.2
+    });
+    this.cache.set(cacheKey, this.settings.mergeModel, response);
+    const parsed = this.parseResponse(response);
+    return this.parseKnowledgeUnits(parsed);
+  }
+  /**
+   * Identify topics from documents
+   */
+  async identifyTopics(documents, query) {
+    const topicsFromDocs = /* @__PURE__ */ new Set();
+    for (const doc of documents) {
+      if (doc.topics) {
+        doc.topics.forEach((t) => topicsFromDocs.add(t));
+      }
+    }
+    if (topicsFromDocs.size >= 3) {
+      return [...topicsFromDocs].slice(0, 8);
+    }
+    const cacheKey = `topics:${query}:${documents.map((d) => d.id).join(",")}`;
+    const cached = this.cache.get(cacheKey, this.settings.mergeModel);
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch {
+      }
+    }
+    const docSummaries = documents.map((d) => `- ${d.title}: ${d.summary || d.content.substring(0, 100)}`).join("\n");
+    const response = await this.client.chat({
+      model: this.settings.mergeModel,
+      messages: [
+        {
+          role: "system",
+          content: '\u5206\u6790\u6587\u6863\u96C6\u5408\uFF0C\u63D0\u53D63-8\u4E2A\u4E3B\u8981\u4E3B\u9898\u3002\u4EE5JSON\u6570\u7EC4\u683C\u5F0F\u8FD4\u56DE\uFF0C\u5982 ["\u4E3B\u98981", "\u4E3B\u98982"]'
+        },
+        {
+          role: "user",
+          content: `\u67E5\u8BE2\uFF1A${query}
+
+\u6587\u6863\uFF1A
+${docSummaries}`
+        }
+      ],
+      max_tokens: 500,
+      temperature: 0.3
+    });
+    this.cache.set(cacheKey, this.settings.mergeModel, response);
+    try {
+      const topics = JSON.parse(response);
+      if (Array.isArray(topics)) {
+        return topics.slice(0, 8);
+      }
+    } catch {
+    }
+    return [...topicsFromDocs];
+  }
+  /**
+   * Build a batch prompt for knowledge unit generation
+   */
+  buildBatchPrompt(clusters, query) {
+    let prompt = `\u8BF7\u6839\u636E\u4EE5\u4E0B\u6587\u6863\u7C07\uFF0C\u4E3A\u6BCF\u4E2A\u4E3B\u9898\u751F\u6210\u4E00\u4E2A\u77E5\u8BC6\u5355\u5143\u3002
+
+## \u67E5\u8BE2\uFF1A${query}
+
+## \u6587\u6863\u7C07\u4FE1\u606F\uFF1A
+`;
+    for (let i = 0; i < clusters.length; i++) {
+      const cluster = clusters[i];
+      prompt += `### \u4E3B\u9898 ${i + 1}\uFF1A${cluster.topic}
+`;
+      prompt += `\u6587\u6863\u6570\u91CF\uFF1A${cluster.documents.length}
+`;
+      prompt += `\u6587\u6863\u5217\u8868\uFF1A
+`;
+      for (const doc of cluster.documents) {
+        const summary = doc.summary || doc.content.substring(0, 150);
+        prompt += `- ${doc.title}: ${summary}
+`;
+      }
+      prompt += "\n";
+    }
+    prompt += `## \u751F\u6210\u8981\u6C42\uFF1A
+1. \u6BCF\u4E2A\u77E5\u8BC6\u5355\u5143\u5305\u542B\uFF1A\u4E3B\u9898\u540D\u79F0\u3001\u5408\u5E76\u6458\u8981\uFF08300-500\u5B57\uFF09\u30013-5\u4E2A\u5173\u952E\u70B9\u3001\u5EFA\u8BAE\u4F7F\u7528\u573A\u666F
+2. \u6D88\u9664\u91CD\u590D\u5185\u5BB9\uFF0C\u4FDD\u7559\u6700\u51C6\u786E\u7248\u672C
+3. \u8865\u5145\u7F3A\u5931\u7684\u903B\u8F91\u73AF\u8282
+
+## \u8F93\u51FA\u683C\u5F0F\uFF1A
+\u8BF7\u4EE5JSON\u6570\u7EC4\u683C\u5F0F\u8F93\u51FA\uFF1A
+[
+  {
+    "topic": "\u4E3B\u9898\u540D\u79F0",
+    "summary": "\u5408\u5E76\u6458\u8981",
+    "keyPoints": ["\u5173\u952E\u70B91", "\u5173\u952E\u70B92"],
+    "suggestedUsage": "\u5EFA\u8BAE\u4F7F\u7528\u573A\u666F"
+  }
+]`;
+    return prompt;
+  }
+  /**
+   * Parse response JSON from AI
+   */
+  parseResponse(response) {
+    const jsonMatch = response.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(parsed))
+          return parsed;
+      } catch {
+      }
+    }
+    try {
+      const parsed = JSON.parse(response);
+      if (Array.isArray(parsed))
+        return parsed;
+    } catch {
+    }
+    return [];
+  }
+  /**
+   * Convert parsed response to KnowledgeUnit objects
+   */
+  parseKnowledgeUnits(data) {
+    return data.map((item, index) => {
+      const obj = item;
+      return {
+        id: `ku-${Date.now()}-${index}`,
+        topic: obj.topic || `\u4E3B\u9898 ${index + 1}`,
+        summary: obj.summary || "",
+        keyPoints: Array.isArray(obj.keyPoints) ? obj.keyPoints : [],
+        sourceCount: 0,
+        relevanceScore: 1 - index * 0.1,
+        historyBoost: 0,
+        suggestedUsage: obj.suggestedUsage || "",
+        sourceDocuments: []
+      };
+    });
+  }
+  /**
+   * Build a cache key from clusters and query
+   */
+  buildCacheKey(clusters, query) {
+    const clusterIds = clusters.map((c) => c.documents.map((d) => d.id).sort().join(",")).sort().join("|");
+    return `${query}::${clusterIds}`;
+  }
+};
+
+// src/knowledge/generator.ts
+var KnowledgeGenerator = class {
+  constructor(vault, settings) {
+    this.vault = vault;
+    this.settings = settings;
+    this.batchProcessor = new BatchProcessor(settings);
+    this.clusterer = new DocumentClusterer();
+    this.merger = new ContentMerger(this.batchProcessor);
+  }
+  updateSettings(settings) {
+    this.settings = settings;
+    this.batchProcessor.updateSettings(settings);
+  }
+  /**
+   * Generate knowledge units from fused results
+   */
+  async generate(fusedResults, query, history = null) {
+    if (fusedResults.length === 0)
+      return [];
+    const topResults = fusedResults.slice(0, 20);
+    const documents = [];
+    for (const result of topResults) {
+      const file = this.vault.getAbstractFileByPath(result.path);
+      if (file && "stat" in file) {
+        const doc = await fileToDocument(file, this.vault);
+        doc.topics = this.extractTopicsFromResult(result);
+        documents.push(doc);
+      }
+    }
+    const indexCards = await getIndexCards(this.vault);
+    this.clusterer.setIndexCards(indexCards);
+    let topics;
+    try {
+      if (this.settings.apiKey) {
+        topics = await this.batchProcessor.identifyTopics(documents, query);
+      } else {
+        topics = this.extractTopicsLocally(documents);
+      }
+    } catch (error) {
+      console.error("[RAG] Topic identification failed, using local fallback:", error);
+      topics = this.extractTopicsLocally(documents);
+    }
+    if (topics.length === 0) {
+      topics = [query];
+    }
+    const clusters = this.clusterer.cluster(documents, topics);
+    let units;
+    try {
+      if (this.settings.apiKey) {
+        units = await this.merger.merge(clusters, query);
+      } else {
+        units = this.merger.mergeLocally(clusters, query);
+      }
+    } catch (error) {
+      console.error("[RAG] Knowledge unit generation failed, using local fallback:", error);
+      units = this.merger.mergeLocally(clusters, query);
+    }
+    if (history) {
+      units = this.applyHistoryBoost(units, history.topicPreferences);
+    }
+    return units;
+  }
+  /**
+   * Extract topics from search result metadata
+   */
+  extractTopicsFromResult(result) {
+    const topics = [];
+    const titleWords = result.title.split(/[\s\-_]+/).filter((w) => w.length > 1);
+    topics.push(...titleWords);
+    return topics;
+  }
+  /**
+   * Local topic extraction (without API)
+   */
+  extractTopicsLocally(documents) {
+    const topicFreq = /* @__PURE__ */ new Map();
+    for (const doc of documents) {
+      const words = doc.title.split(/[\s\-_]+/).filter((w) => w.length > 1);
+      for (const word of words) {
+        topicFreq.set(word, (topicFreq.get(word) || 0) + 1);
+      }
+      if (doc.topics) {
+        for (const topic of doc.topics) {
+          topicFreq.set(topic, (topicFreq.get(topic) || 0) + 2);
+        }
+      }
+    }
+    return [...topicFreq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([topic]) => topic);
+  }
+  /**
+   * Apply history-based boost to knowledge units
+   */
+  applyHistoryBoost(units, topicPreferences) {
+    return units.map((unit) => {
+      let boost = 0;
+      const topicLower = unit.topic.toLowerCase();
+      for (const [topic, preference] of Object.entries(topicPreferences)) {
+        if (topicLower.includes(topic.toLowerCase())) {
+          boost += preference * 0.15;
+        }
+      }
+      return {
+        ...unit,
+        historyBoost: Math.min(boost, 0.3)
+      };
+    }).sort((a, b) => {
+      const scoreA = a.relevanceScore + a.historyBoost;
+      const scoreB = b.relevanceScore + b.historyBoost;
+      return scoreB - scoreA;
+    });
+  }
+};
+
+// src/history/storage.ts
+var DATA_VERSION = 1;
+var DEFAULT_HISTORY = {
+  queries: [],
+  documentInteractions: [],
+  topicPreferences: {},
+  mergeCache: {}
+};
+var HistoryStorage = class {
+  constructor(app, pluginDir) {
+    this.app = app;
+    this.pluginDir = pluginDir;
+  }
+  /**
+   * Load history from disk
+   */
+  async load() {
+    try {
+      const adapter = this.app.vault.adapter;
+      const dataPath = `${this.pluginDir}/data.json`;
+      if (await adapter.exists(dataPath)) {
+        const raw = await adapter.read(dataPath);
+        const data = JSON.parse(raw);
+        if (data.version !== DATA_VERSION) {
+          return this.migrate(data);
+        }
+        return {
+          queries: data.queries || [],
+          documentInteractions: data.documentInteractions || [],
+          topicPreferences: data.topicPreferences || {},
+          mergeCache: data.mergeCache || {}
+        };
+      }
+    } catch (error) {
+      console.error("[RAG] Failed to load history:", error);
+    }
+    return { ...DEFAULT_HISTORY };
+  }
+  /**
+   * Save history to disk
+   */
+  async save(history) {
+    try {
+      const adapter = this.app.vault.adapter;
+      if (!await adapter.exists(this.pluginDir)) {
+        await adapter.mkdir(this.pluginDir);
+      }
+      const data = {
+        version: DATA_VERSION,
+        ...history
+      };
+      await adapter.write(
+        `${this.pluginDir}/data.json`,
+        JSON.stringify(data, null, 2)
+      );
+    } catch (error) {
+      console.error("[RAG] Failed to save history:", error);
+      throw error;
+    }
+  }
+  /**
+   * Clean up old data based on retention policy
+   */
+  cleanup(history, retentionDays) {
+    const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1e3;
+    const cleanQueries = history.queries.filter((q) => q.timestamp > cutoff).slice(-100);
+    const cleanInteractions = history.documentInteractions.filter((i) => i.timestamp > cutoff).slice(-500);
+    const cleanMergeCache = {};
+    let cacheCount = 0;
+    const entries = Object.entries(history.mergeCache).sort((a, b) => b[1].timestamp - a[1].timestamp);
+    for (const [key, entry] of entries) {
+      if (cacheCount >= 100)
+        break;
+      if (entry.timestamp > cutoff) {
+        cleanMergeCache[key] = entry;
+        cacheCount++;
+      }
+    }
+    return {
+      queries: cleanQueries,
+      documentInteractions: cleanInteractions,
+      topicPreferences: history.topicPreferences,
+      mergeCache: cleanMergeCache
+    };
+  }
+  /**
+   * Export history as JSON
+   */
+  async export(history) {
+    return JSON.stringify({
+      version: DATA_VERSION,
+      exportDate: (/* @__PURE__ */ new Date()).toISOString(),
+      ...history
+    }, null, 2);
+  }
+  /**
+   * Import history from JSON
+   */
+  async import(jsonString) {
+    const data = JSON.parse(jsonString);
+    return {
+      queries: data.queries || [],
+      documentInteractions: data.documentInteractions || [],
+      topicPreferences: data.topicPreferences || {},
+      mergeCache: data.mergeCache || {}
+    };
+  }
+  /**
+   * Migrate old data format
+   */
+  migrate(data) {
+    console.log("[RAG] Migrating history data...");
+    return { ...DEFAULT_HISTORY };
+  }
+};
+
+// src/history/analyzer.ts
+var HistoryAnalyzer = class {
+  /**
+   * Calculate topic preferences from query and interaction history
+   */
+  calculateTopicPreferences(history) {
+    const topicScores = {};
+    for (const query of history.queries) {
+      const words = this.extractKeywords(query.text);
+      for (const word of words) {
+        topicScores[word] = (topicScores[word] || 0) + 1;
+      }
+    }
+    for (const interaction of history.documentInteractions) {
+      const words = this.extractKeywords(interaction.docId);
+      const weight = interaction.action === "save" ? 3 : interaction.action === "copy" ? 2 : 1;
+      for (const word of words) {
+        topicScores[word] = (topicScores[word] || 0) + weight;
+      }
+    }
+    const maxScore = Math.max(...Object.values(topicScores), 1);
+    const normalized = {};
+    for (const [topic, score] of Object.entries(topicScores)) {
+      if (score >= 2) {
+        normalized[topic] = score / maxScore;
+      }
+    }
+    return normalized;
+  }
+  /**
+   * Find related queries from history
+   */
+  findRelatedQueries(history, query, limit = 5) {
+    const queryKeywords = this.extractKeywords(query);
+    const scored = history.queries.map((record) => {
+      const recordKeywords = this.extractKeywords(record.text);
+      const overlap = queryKeywords.filter((k) => recordKeywords.includes(k)).length;
+      const recency = 1 / (1 + (Date.now() - record.timestamp) / (24 * 60 * 60 * 1e3));
+      return { record, score: overlap * recency };
+    });
+    return scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score).slice(0, limit).map((s) => s.record);
+  }
+  /**
+   * Get frequently used documents
+   */
+  getFrequentDocuments(history, limit = 10) {
+    const counts = {};
+    for (const interaction of history.documentInteractions) {
+      counts[interaction.docId] = (counts[interaction.docId] || 0) + 1;
+    }
+    return Object.entries(counts).map(([docId, count]) => ({ docId, count })).sort((a, b) => b.count - a.count).slice(0, limit);
+  }
+  /**
+   * Extract keywords from text
+   */
+  extractKeywords(text) {
+    return text.toLowerCase().replace(/[^\w\u4e00-\u9fff\s]/g, " ").split(/\s+/).filter((w) => w.length > 1);
+  }
+};
+
+// src/history/manager.ts
+var HistoryManager = class {
+  constructor(app, pluginDir, retentionDays = 30) {
+    this.app = app;
+    this.pluginDir = pluginDir;
+    this.retentionDays = retentionDays;
+    this.storage = new HistoryStorage(app, pluginDir);
+    this.analyzer = new HistoryAnalyzer();
+    this.history = {
+      queries: [],
+      documentInteractions: [],
+      topicPreferences: {},
+      mergeCache: {}
+    };
+  }
+  /**
+   * Initialize and load history
+   */
+  async init() {
+    this.history = await this.storage.load();
+    this.history = this.storage.cleanup(this.history, this.retentionDays);
+    this.history.topicPreferences = this.analyzer.calculateTopicPreferences(this.history);
+    console.log(`[RAG] History loaded: ${this.history.queries.length} queries, ${this.history.documentInteractions.length} interactions`);
+  }
+  /**
+   * Record a search query
+   */
+  async recordQuery(text, knowledgeUnits) {
+    const record = {
+      id: generateId(),
+      text,
+      timestamp: Date.now(),
+      retrievedCount: knowledgeUnits.length,
+      usedKnowledgeUnits: knowledgeUnits.map((u) => u.id)
+    };
+    this.history.queries.push(record);
+    if (this.history.queries.length > 100) {
+      this.history.queries = this.history.queries.slice(-100);
+    }
+    await this.save();
+  }
+  /**
+   * Record a document interaction
+   */
+  async recordInteraction(docId, action, queryId) {
+    const interaction = {
+      docId,
+      timestamp: Date.now(),
+      action,
+      queryId
+    };
+    this.history.documentInteractions.push(interaction);
+    if (this.history.documentInteractions.length > 500) {
+      this.history.documentInteractions = this.history.documentInteractions.slice(-500);
+    }
+    this.history.topicPreferences = this.analyzer.calculateTopicPreferences(this.history);
+    await this.save();
+  }
+  /**
+   * Get current history
+   */
+  getHistory() {
+    return this.history;
+  }
+  /**
+   * Get topic preferences
+   */
+  getTopicPreferences() {
+    return this.history.topicPreferences;
+  }
+  /**
+   * Get recent queries
+   */
+  getRecentQueries(limit = 20) {
+    return this.history.queries.slice(-limit).reverse();
+  }
+  /**
+   * Find related queries
+   */
+  findRelatedQueries(query, limit = 5) {
+    return this.analyzer.findRelatedQueries(this.history, query, limit);
+  }
+  /**
+   * Get merge cache entry
+   */
+  getMergeCache(key) {
+    const entry = this.history.mergeCache[key];
+    if (!entry)
+      return null;
+    if (Date.now() - entry.timestamp > entry.ttl) {
+      delete this.history.mergeCache[key];
+      return null;
+    }
+    return entry.synthesizedContent;
+  }
+  /**
+   * Set merge cache entry
+   */
+  async setMergeCache(key, topic, content, sourceHashes) {
+    this.history.mergeCache[key] = {
+      topic,
+      synthesizedContent: content,
+      timestamp: Date.now(),
+      sourceHashes,
+      ttl: this.retentionDays * 24 * 60 * 60 * 1e3
+    };
+    const keys = Object.keys(this.history.mergeCache);
+    if (keys.length > 100) {
+      const sorted = keys.sort(
+        (a, b) => this.history.mergeCache[a].timestamp - this.history.mergeCache[b].timestamp
+      );
+      for (const key2 of sorted.slice(0, keys.length - 100)) {
+        delete this.history.mergeCache[key2];
+      }
+    }
+    await this.save();
+  }
+  /**
+   * Clear all history
+   */
+  async clearHistory() {
+    this.history = {
+      queries: [],
+      documentInteractions: [],
+      topicPreferences: {},
+      mergeCache: {}
+    };
+    await this.save();
+  }
+  /**
+   * Export history data
+   */
+  async exportData() {
+    return this.storage.export(this.history);
+  }
+  /**
+   * Import history data
+   */
+  async importData(json) {
+    this.history = await this.storage.import(json);
+    this.history.topicPreferences = this.analyzer.calculateTopicPreferences(this.history);
+    await this.save();
+  }
+  /**
+   * Save history to disk
+   */
+  async save() {
+    try {
+      await this.storage.save(this.history);
+    } catch (error) {
+      console.error("[RAG] Failed to save history:", error);
+    }
+  }
+};
+
+// src/ui/main-view.ts
+var import_obsidian3 = require("obsidian");
+var VIEW_TYPE_RAG = "enhanced-rag-view";
+var MainRAGView = class extends import_obsidian3.ItemView {
+  constructor(leaf) {
+    super(leaf);
+    this.messages = [];
+    this.threadEl = null;
+    this.inputEl = null;
+    this.statusEl = null;
+    this.onSearch = null;
+    this.onSelectResult = null;
+    this.onSelectUnit = null;
+  }
+  getViewType() {
+    return VIEW_TYPE_RAG;
+  }
+  getDisplayText() {
+    return "Enhanced RAG";
+  }
+  getIcon() {
+    return "brain";
+  }
+  async onOpen() {
+    this.renderLayout();
+    this.setStatus("\u5C31\u7EEA");
+  }
+  setOnSearch(callback) {
+    this.onSearch = callback;
+  }
+  setOnSelectResult(callback) {
+    this.onSelectResult = callback;
+  }
+  setOnSelectUnit(callback) {
+    this.onSelectUnit = callback;
+  }
+  /**
+   * Render the main layout: header + thread + composer
+   */
+  renderLayout() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("rag-chat-view");
+    const header = contentEl.createDiv({ cls: "rag-chat-header" });
+    header.createEl("h3", { text: "\u{1F4AC} Enhanced RAG" });
+    this.statusEl = header.createDiv({ cls: "rag-chat-status" });
+    const actions = header.createDiv({ cls: "rag-chat-actions" });
+    this.makeBtn(actions, "\u{1F4AC} \u65B0\u4F1A\u8BDD", () => this.clearMessages());
+    this.threadEl = contentEl.createDiv({ cls: "rag-chat-thread" });
+    this.renderMessages();
+    const composer = contentEl.createDiv({ cls: "rag-chat-composer" });
+    this.inputEl = composer.createEl("textarea", {
+      cls: "rag-chat-input",
+      attr: { placeholder: "\u8F93\u5165\u95EE\u9898\uFF0CEnter \u53D1\u9001\uFF0CShift+Enter \u6362\u884C" }
+    });
+    this.inputEl.addEventListener("keydown", async (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        await this.sendMessage();
+      }
+    });
+    const footer = composer.createDiv({ cls: "rag-chat-footer" });
+    this.makeBtn(footer, "\u53D1\u9001", () => this.sendMessage()).addClass("rag-chat-send");
+  }
+  makeBtn(parent, text, onClick) {
+    const btn = parent.createEl("button", { text, cls: "rag-chat-btn" });
+    btn.addEventListener("click", onClick);
+    return btn;
+  }
+  setStatus(text) {
+    if (this.statusEl)
+      this.statusEl.setText(text);
+  }
+  /**
+   * Render all messages in the thread
+   */
+  renderMessages() {
+    if (!this.threadEl)
+      return;
+    this.threadEl.empty();
+    if (this.messages.length === 0) {
+      this.threadEl.createDiv({
+        cls: "rag-chat-empty",
+        text: "\u8F93\u5165\u95EE\u9898\u5F00\u59CB\u5BF9\u8BDD\u3002\u57FA\u4E8E\u4F60\u7684\u7B14\u8BB0\u5E93\u68C0\u7D22\u5E76\u56DE\u7B54\u3002"
+      });
+      return;
+    }
+    for (const msg of this.messages) {
+      const wrap = this.threadEl.createDiv({ cls: `rag-chat-message ${msg.role}` });
+      if (msg.role === "assistant" && msg.sources?.length) {
+        const sources = wrap.createDiv({ cls: "rag-chat-sources" });
+        sources.createSpan({ text: "\u{1F4C4} \u6765\u6E90\uFF1A" });
+        for (const src of msg.sources) {
+          const link = sources.createEl("a", {
+            text: src.title,
+            cls: "rag-chat-source-link",
+            attr: { title: src.path }
+          });
+          link.addEventListener("click", (e) => {
+            e.preventDefault();
+            this.openFile(src.path);
+          });
+          sources.createSpan({ text: " " });
+        }
+      }
+      const bubble = wrap.createDiv({ cls: "rag-chat-bubble" });
+      if (msg.streaming) {
+        bubble.createSpan({ text: msg.content || "\u601D\u8003\u4E2D..." });
+      } else {
+        import_obsidian3.MarkdownRenderer.render(this.app, msg.content, bubble, "", this);
+      }
+    }
+    this.threadEl.scrollTop = this.threadEl.scrollHeight;
+  }
+  async openFile(path) {
+    if (this.app.vault.getAbstractFileByPath(path)) {
+      await this.app.workspace.openLinkText(path, "", true);
+    }
+  }
+  clearMessages() {
+    this.messages = [];
+    this.renderMessages();
+  }
+  /**
+   * Send message: extract input, call search+LLM, stream response
+   */
+  async sendMessage() {
+    if (!this.inputEl)
+      return;
+    const query = this.inputEl.value.trim();
+    if (!query)
+      return;
+    if (!this.onSearch) {
+      new import_obsidian3.Notice("\u641C\u7D22\u56DE\u8C03\u672A\u8BBE\u7F6E");
+      return;
+    }
+    this.messages.push({ role: "user", content: query });
+    this.inputEl.value = "";
+    const assistantMsg = { role: "assistant", content: "", streaming: true };
+    this.messages.push(assistantMsg);
+    this.renderMessages();
+    this.setStatus("\u6B63\u5728\u68C0\u7D22...");
+    try {
+      const result = await this.onSearch(query, (token) => {
+        assistantMsg.content += token;
+        assistantMsg.streaming = true;
+        this.renderMessages();
+      });
+      assistantMsg.content = result.answer;
+      assistantMsg.sources = result.sources;
+      assistantMsg.streaming = false;
+      this.setStatus(`\u68C0\u7D22\u5B8C\u6210\uFF0C\u5F15\u7528\u4E86 ${result.sources.length} \u4E2A\u6587\u4EF6`);
+    } catch (e) {
+      assistantMsg.content = `\u274C \u9519\u8BEF\uFF1A${e.message}`;
+      assistantMsg.streaming = false;
+      this.setStatus("\u67E5\u8BE2\u5931\u8D25");
+    }
+    this.renderMessages();
+  }
+  async onClose() {
+  }
+};
+
+// src/ui/unit-view.ts
+var import_obsidian4 = require("obsidian");
+var VIEW_TYPE_RAG_UNIT = "enhanced-rag-unit-view";
+var UnitDetailView = class extends import_obsidian4.ItemView {
+  constructor(leaf) {
+    super(leaf);
+    this.unit = null;
+  }
+  getViewType() {
+    return VIEW_TYPE_RAG_UNIT;
+  }
+  getDisplayText() {
+    return this.unit ? `\u77E5\u8BC6\u5355\u5143: ${this.unit.topic}` : "\u77E5\u8BC6\u5355\u5143\u8BE6\u60C5";
+  }
+  getIcon() {
+    return "book-open";
+  }
+  async onOpen() {
+    this.render();
+  }
+  setUnit(unit) {
+    this.unit = unit;
+    this.render();
+  }
+  render() {
+    const container = this.containerEl.children[1];
+    container.empty();
+    container.addClass("rag-unit-detail");
+    if (!this.unit) {
+      container.createEl("p", { text: "\u8BF7\u9009\u62E9\u4E00\u4E2A\u77E5\u8BC6\u5355\u5143\u67E5\u770B\u8BE6\u60C5" });
+      return;
+    }
+    container.createEl("h2", { text: this.unit.topic });
+    const meta = container.createDiv("rag-unit-detail-meta");
+    meta.createEl("span", { text: `\u76F8\u5173\u6027: ${this.unit.relevanceScore.toFixed(2)}` });
+    meta.createEl("span", { text: `\u6E90\u6587\u6863\u6570: ${this.unit.sourceCount}` });
+    if (this.unit.historyBoost > 0) {
+      meta.createEl("span", { text: `\u5386\u53F2\u52A0\u6210: +${this.unit.historyBoost.toFixed(2)}` });
+    }
+    container.createEl("h3", { text: "\u6458\u8981" });
+    container.createEl("p", { text: this.unit.summary, cls: "rag-unit-detail-summary" });
+    if (this.unit.keyPoints.length > 0) {
+      container.createEl("h3", { text: "\u5173\u952E\u70B9" });
+      const list = container.createEl("ul");
+      for (const point of this.unit.keyPoints) {
+        list.createEl("li", { text: point });
+      }
+    }
+    if (this.unit.suggestedUsage) {
+      container.createEl("h3", { text: "\u5EFA\u8BAE\u4F7F\u7528" });
+      container.createEl("p", { text: this.unit.suggestedUsage });
+    }
+    if (this.unit.sourceDocuments.length > 0) {
+      container.createEl("h3", { text: "\u6E90\u6587\u6863" });
+      const list = container.createEl("ul", { cls: "rag-source-list" });
+      for (const docId of this.unit.sourceDocuments) {
+        const item = list.createEl("li");
+        const link = item.createEl("a", { text: docId });
+        link.href = "#";
+        link.addEventListener("click", (e) => {
+          e.preventDefault();
+          const file = this.app.vault.getAbstractFileByPath(docId);
+          if (file) {
+            this.app.workspace.openLinkText(docId, "");
+          }
+        });
+      }
+    }
+  }
+};
+
+// src/ui/history-view.ts
+var import_obsidian5 = require("obsidian");
+var VIEW_TYPE_RAG_HISTORY = "enhanced-rag-history-view";
+var HistoryView = class extends import_obsidian5.ItemView {
+  constructor(leaf) {
+    super(leaf);
+    this.queries = [];
+    this.onSelectQuery = null;
+  }
+  getViewType() {
+    return VIEW_TYPE_RAG_HISTORY;
+  }
+  getDisplayText() {
+    return "\u67E5\u8BE2\u5386\u53F2";
+  }
+  getIcon() {
+    return "history";
+  }
+  async onOpen() {
+    this.render();
+  }
+  setQueries(queries) {
+    this.queries = queries;
+    this.render();
+  }
+  setOnSelectQuery(callback) {
+    this.onSelectQuery = callback;
+  }
+  render() {
+    const container = this.containerEl.children[1];
+    container.empty();
+    container.addClass("rag-history-view");
+    container.createEl("h3", { text: "\u6700\u8FD1\u67E5\u8BE2" });
+    if (this.queries.length === 0) {
+      container.createEl("p", { text: "\u6682\u65E0\u67E5\u8BE2\u5386\u53F2", cls: "rag-history-empty" });
+      return;
+    }
+    const list = container.createDiv("rag-history-list");
+    for (const query of this.queries) {
+      const item = list.createDiv("rag-history-item");
+      const text = item.createDiv("rag-history-text");
+      text.setText(query.text);
+      const meta = item.createDiv("rag-history-meta");
+      const date = new Date(query.timestamp);
+      meta.setText(`${date.toLocaleDateString()} | ${query.retrievedCount} \u7ED3\u679C`);
+      item.addEventListener("click", () => {
+        if (this.onSelectQuery) {
+          this.onSelectQuery(query.text);
+        }
+      });
+    }
+  }
+};
+
+// src/main.ts
+var CHAT_SYSTEM_PROMPT = `\u4F60\u662F\u4E00\u4E2A\u57FA\u4E8E\u7528\u6237\u7B14\u8BB0\u5E93\u7684\u95EE\u7B54\u52A9\u624B\u3002
+
+## \u89C4\u5219
+1. \u53EA\u57FA\u4E8E\u63D0\u4F9B\u7684\u7B14\u8BB0\u5185\u5BB9\u56DE\u7B54\uFF0C\u4E0D\u8981\u7F16\u9020\u4FE1\u606F
+2. \u5982\u679C\u7B14\u8BB0\u5185\u5BB9\u4E0D\u8DB3\u4EE5\u56DE\u7B54\u95EE\u9898\uFF0C\u660E\u786E\u8BF4\u660E\u54EA\u4E9B\u90E8\u5206\u7F3A\u4E4F\u4F9D\u636E
+3. \u6BCF\u4E2A\u5173\u952E\u4E8B\u5B9E\u90FD\u8981\u6807\u6CE8\u6765\u6E90\u6587\u4EF6\u8DEF\u5F84
+4. \u56DE\u7B54\u8981\u7B80\u6D01\u6709\u7528\uFF0C\u4E0D\u8981\u5197\u957F
+5. \u5982\u679C\u627E\u5230\u591A\u4E2A\u76F8\u5173\u7B14\u8BB0\uFF0C\u7EFC\u5408\u6574\u7406\u800C\u975E\u7B80\u5355\u7F57\u5217
+
+## \u6765\u6E90\u6807\u6CE8\u683C\u5F0F
+\u5728\u6BCF\u4E2A\u5173\u952E\u4E8B\u5B9E\u540E\u7528\u4EE5\u4E0B\u683C\u5F0F\u6807\u6CE8\u6765\u6E90\uFF1A
+> \u{1F4C4} \u6765\u6E90\uFF1A\`\u8DEF\u5F84/\u6587\u4EF6\u540D.md\`
+
+## \u8F93\u51FA\u683C\u5F0F
+\u7528 markdown \u683C\u5F0F\u8F93\u51FA\uFF0C\u7ED3\u6784\u6E05\u6670\u3002`;
+function buildPipelinePrompt(query, ranked, cards, contentMap) {
+  let prompt = `## \u7528\u6237\u95EE\u9898
+${query}
+
+## \u76F8\u5173\u7B14\u8BB0
+
+`;
+  for (let i = 0; i < Math.min(ranked.length, 10); i++) {
+    const r = ranked[i];
+    const tag = r.fromExpansion ? " [\u62D3\u5C55]" : "";
+    prompt += `### [${i + 1}] ${r.title}${tag}
+\u8DEF\u5F84\uFF1A\`${r.path}\`
+`;
+    if (r.fromExpansion) {
+      const card = cards.get(r.docId) || r.card;
+      if (card) {
+        const summary = card.oneLineSummary || card.summary;
+        if (summary)
+          prompt += `\u6458\u8981\uFF1A${summary.substring(0, 200)}
+`;
+        const kw = card.retrievalKeywords || card.keywords;
+        if (kw?.length)
+          prompt += `\u5173\u952E\u8BCD\uFF1A${kw.slice(0, 5).join(", ")}
+`;
+      }
+    } else {
+      const content = contentMap?.get(r.docId) || r.snippet;
+      if (content)
+        prompt += `\u5185\u5BB9\uFF1A${content.substring(0, 600)}
+`;
+    }
+    prompt += "\n";
+  }
+  return prompt;
+}
+var EnhancedRAGPlugin = class extends import_obsidian6.Plugin {
+  constructor() {
+    super(...arguments);
+    this.settings = { ...DEFAULT_SETTINGS };
+    this.mainView = null;
+  }
+  async onload() {
+    await this.loadSettings();
+    const pluginDir = `${this.app.vault.configDir}/plugins/obsidian-enhanced-rag`;
+    this.retrievalManager = new RetrievalManager(this.app.vault, this.settings);
+    this.resultFusion = new ResultFusion();
+    this.queryAnalyzer = new QueryAnalyzer();
+    this.knowledgeGenerator = new KnowledgeGenerator(this.app.vault, this.settings);
+    this.historyManager = new HistoryManager(this.app, pluginDir, this.settings.historyRetentionDays);
+    this.cloudCache = new CloudCache(this.settings.cacheSize);
+    this.registerView(VIEW_TYPE_RAG, (leaf) => {
+      this.mainView = new MainRAGView(leaf);
+      this.setupMainViewCallbacks();
+      return this.mainView;
+    });
+    this.registerView(VIEW_TYPE_RAG_UNIT, (leaf) => new UnitDetailView(leaf));
+    this.registerView(VIEW_TYPE_RAG_HISTORY, (leaf) => new HistoryView(leaf));
+    this.addRibbonIcon("brain", "\u6253\u5F00 RAG \u641C\u7D22", () => this.activateView());
+    this.addCommand({
+      id: "open-rag-search",
+      name: "\u6253\u5F00 RAG \u641C\u7D22",
+      callback: () => this.activateView()
+    });
+    this.addCommand({
+      id: "rag-search",
+      name: "RAG \u641C\u7D22",
+      callback: () => {
+        this.activateView();
+      }
+    });
+    this.addCommand({
+      id: "rebuild-indexes",
+      name: "\u91CD\u5EFA\u68C0\u7D22\u7D22\u5F15",
+      callback: () => this.rebuildIndexes()
+    });
+    this.addSettingTab(new RAGSettingTab(this.app, this));
+    this.registerEvent(
+      this.app.vault.on("modify", (file) => this.onFileModify(file))
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", (file) => this.onFileDelete(file))
+    );
+    this.registerEvent(
+      this.app.vault.on("rename", (file, oldPath) => this.onFileRename(file, oldPath))
+    );
+    await this.historyManager.init();
+    this.retrievalManager.buildIndexes().catch((err) => {
+      console.error("[RAG] Failed to build indexes:", err);
+    });
+    console.log("[RAG] Plugin loaded");
+  }
+  async onunload() {
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_RAG);
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_RAG_UNIT);
+    this.app.workspace.detachLeavesOfType(VIEW_TYPE_RAG_HISTORY);
+    console.log("[RAG] Plugin unloaded");
+  }
+  async loadSettings() {
+    const data = await this.loadData();
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
+  }
+  async saveSettings() {
+    await this.saveData(this.settings);
+    this.retrievalManager?.updateSettings(this.settings);
+    this.knowledgeGenerator?.updateSettings(this.settings);
+  }
+  /**
+   * Activate the main RAG view
+   */
+  async activateView() {
+    const { workspace } = this.app;
+    let leaf = null;
+    const leaves = workspace.getLeavesOfType(VIEW_TYPE_RAG);
+    if (leaves.length > 0) {
+      leaf = leaves[0];
+    } else {
+      leaf = workspace.getRightLeaf(false);
+      if (leaf) {
+        await leaf.setViewState({ type: VIEW_TYPE_RAG, active: true });
+      }
+    }
+    if (leaf) {
+      workspace.revealLeaf(leaf);
+    }
+  }
+  /**
+   * Setup callbacks for the main view
+   */
+  setupMainViewCallbacks() {
+    if (!this.mainView)
+      return;
+    this.mainView.setOnSearch(async (query, onToken) => {
+      return await this.chatQuery(query, onToken);
+    });
+    this.mainView.setOnSelectResult((result) => {
+      this.app.workspace.openLinkText(result.path, "");
+      this.historyManager.recordInteraction(result.docId, "click");
+    });
+    this.mainView.setOnSelectUnit((unit) => {
+      this.openUnitDetail(unit);
+    });
+  }
+  /**
+   * Chat query: pipeline retrieval → stream LLM answer
+   */
+  async chatQuery(query, onToken) {
+    if (!this.settings.apiKey) {
+      throw new Error("API key not configured. Please set it in plugin settings.");
+    }
+    const { ranked, cards } = await this.retrievalManager.pipelineSearch(query, 10);
+    const topicPreferences = this.historyManager.getTopicPreferences();
+    const boosted = this.resultFusion.applyHistoryBoost(ranked, topicPreferences);
+    if (boosted.length === 0) {
+      return { answer: "\u26A0\uFE0F \u672A\u627E\u5230\u76F8\u5173\u7B14\u8BB0\uFF0C\u8BF7\u5C1D\u8BD5\u4E0D\u540C\u7684\u5173\u952E\u8BCD\u3002", sources: [] };
+    }
+    const contentMap = /* @__PURE__ */ new Map();
+    for (const article of boosted) {
+      if (!article.fromExpansion) {
+        const file = this.app.vault.getAbstractFileByPath(article.path);
+        if (file && "stat" in file) {
+          try {
+            const content = await this.app.vault.cachedRead(file);
+            contentMap.set(article.docId, content);
+          } catch {
+          }
+        }
+      }
+    }
+    const userPrompt = buildPipelinePrompt(query, boosted, cards, contentMap);
+    const url = `${this.settings.apiBaseUrl}/chat/completions`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.settings.apiKey}`
+      },
+      body: JSON.stringify({
+        model: this.settings.chatModel,
+        messages: [
+          { role: "system", content: CHAT_SYSTEM_PROMPT },
+          { role: "user", content: userPrompt }
+        ],
+        temperature: 0.3,
+        max_tokens: 4096,
+        stream: true
+      })
+    });
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`API error (${resp.status}): ${errText}`);
+    }
+    const reader = resp.body?.getReader();
+    if (!reader)
+      throw new Error("\u65E0\u6CD5\u8BFB\u53D6\u6D41\u5F0F\u54CD\u5E94");
+    const decoder = new TextDecoder();
+    let fullContent = "";
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done)
+        break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data: "))
+          continue;
+        const jsonStr = trimmed.slice(6);
+        if (jsonStr === "[DONE]")
+          continue;
+        try {
+          const parsed = JSON.parse(jsonStr);
+          const delta = parsed.choices?.[0]?.delta?.content;
+          if (delta) {
+            fullContent += delta;
+            onToken(delta);
+          }
+        } catch {
+        }
+      }
+    }
+    const sourceMap = /* @__PURE__ */ new Map();
+    for (const r of boosted.slice(0, 10)) {
+      if (!sourceMap.has(r.path)) {
+        sourceMap.set(r.path, { path: r.path, title: r.title });
+      }
+    }
+    await this.historyManager.recordQuery(query, []);
+    return { answer: fullContent, sources: Array.from(sourceMap.values()) };
+  }
+  // performSearch removed - chat UI now uses chatQuery directly
+  /**
+   * Open knowledge unit detail view
+   */
+  async openUnitDetail(unit) {
+    const { workspace } = this.app;
+    let leaf = null;
+    const leaves = workspace.getLeavesOfType(VIEW_TYPE_RAG_UNIT);
+    if (leaves.length > 0) {
+      leaf = leaves[0];
+    } else {
+      leaf = workspace.getRightLeaf(false);
+      if (leaf) {
+        await leaf.setViewState({ type: VIEW_TYPE_RAG_UNIT, active: true });
+      }
+    }
+    if (leaf) {
+      const view = leaf.view;
+      if (view instanceof UnitDetailView) {
+        view.setUnit(unit);
+      }
+      workspace.revealLeaf(leaf);
+    }
+  }
+  /**
+   * Rebuild all indexes
+   */
+  async rebuildIndexes() {
+    new import_obsidian6.Notice("\u6B63\u5728\u91CD\u5EFA\u7D22\u5F15...");
+    try {
+      await this.retrievalManager.buildIndexes();
+      new import_obsidian6.Notice("\u7D22\u5F15\u91CD\u5EFA\u5B8C\u6210");
+    } catch (error) {
+      console.error("[RAG] Index rebuild failed:", error);
+      new import_obsidian6.Notice(`\u7D22\u5F15\u91CD\u5EFA\u5931\u8D25: ${error.message}`);
+    }
+  }
+  /**
+   * Clear all caches
+   */
+  async clearCache() {
+    this.cloudCache.clear();
+    new import_obsidian6.Notice("\u7F13\u5B58\u5DF2\u6E05\u9664");
+  }
+  /**
+   * Clear all history
+   */
+  async clearHistory() {
+    await this.historyManager.clearHistory();
+    new import_obsidian6.Notice("\u5386\u53F2\u5DF2\u91CD\u7F6E");
+  }
+  /**
+   * Handle file modifications for incremental indexing
+   */
+  async onFileModify(file) {
+    if (file instanceof import_obsidian6.TFile && file.extension === "md") {
+      await this.retrievalManager.updateDocument(file.path);
+    }
+  }
+  /**
+   * Handle file deletion for index cleanup
+   */
+  onFileDelete(file) {
+    if (file instanceof import_obsidian6.TFile) {
+      this.retrievalManager.removeDocument(file.path);
+    }
+  }
+  /**
+   * Handle file rename for index update
+   */
+  async onFileRename(file, oldPath) {
+    if (file instanceof import_obsidian6.TFile && file.extension === "md") {
+      this.retrievalManager.removeDocument(oldPath);
+      await this.retrievalManager.updateDocument(file.path);
+    }
+  }
+};

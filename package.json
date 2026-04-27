@@ -1,0 +1,28 @@
+{
+  "name": "obsidian-enhanced-rag",
+  "version": "1.0.0",
+  "description": "Enhanced RAG plugin for Obsidian with triple retrieval fusion and knowledge unit generation",
+  "main": "main.js",
+  "scripts": {
+    "build": "node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs",
+    "lint": "tsc --noEmit",
+    "test": "tsc --noEmit && echo 'Type check passed'",
+    "check": "npm run lint"
+  },
+  "keywords": [
+    "obsidian",
+    "rag",
+    "retrieval",
+    "knowledge-management"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@esbuild/win32-x64": "^0.28.0",
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.20.0",
+    "obsidian": "latest",
+    "typescript": "^5.3.0"
+  }
+}

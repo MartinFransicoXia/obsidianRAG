@@ -1,0 +1,9 @@
+{
+  "id": "obsidian-enhanced-rag",
+  "name": "Enhanced RAG",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "Enhanced RAG plugin with triple retrieval fusion and knowledge unit generation",
+  "author": "",
+  "isDesktopOnly": false
+}
