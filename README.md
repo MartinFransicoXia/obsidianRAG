@@ -76,10 +76,26 @@ npm run lint
 - **Chat Model**：对话模型，默认 `deepseek-reasoner`
 - **Merge Model**：内容合并模型，默认 `deepseek-chat`
 
+### Embedding 配置
+- **Embedding Model**：向量化模型，默认 `text-embedding-v4`
+- **Embedding Base URL**：Embedding API 地址（留空则与 API Base URL 相同），如 `https://dashscope.aliyuncs.com/compatible-mode/v1`
+- **Embedding 维度**：向量维度，默认 1024
+
+### Rerank 配置
+- **启用 Rerank**：使用 Rerank 模型对检索结果二次排序
+- **Rerank Model**：排序模型，如 `qwen3-rerank` / `gte-rerank-v2`
+- **Rerank Base URL**：Rerank API 地址（留空则与 API Base URL 相同）
+
+### 检索权重配置
+- **关键词检索权重**：默认 0.40
+- **索引检索权重**：默认 0.35
+- **向量检索权重**：默认 0.25
+
 ### 性能配置
 - **缓存大小**：LRU 缓存最大条目数，默认 100
 - **历史保留天数**：默认 30 天
 - **启用查询类型检测**：默认开启
+- **自动生成索引卡**：文件保存时自动生成/更新索引卡到 00_INDEX/files/
 
 ## 使用方法
 
@@ -90,34 +106,64 @@ npm run lint
 
 ### 命令
 - **打开 RAG 搜索**：打开搜索面板
-- **重建检索索引**：手动重建索引
+- **重建检索索引**：手动重建关键词 + 向量索引
+- **重建索引卡**：扫描所有 Markdown 文件，重新生成 00_INDEX/files/ 下的索引卡
 
 ## 索引结构
 
-插件支持从 `00_INDEX/files/` 目录读取结构化索引卡（JSON 格式）：
+插件从 `00_INDEX/files/` 目录读取结构化索引卡（YAML frontmatter + Markdown 格式）：
 
-```json
-{
-  "id": "文档ID",
-  "title": "文档标题",
-  "summary": "文档摘要",
-  "topics": ["主题1", "主题2"],
-  "links": ["关联文档1"],
-  "keywords": ["关键词1", "关键词2"],
-  "retrievalKeywords": ["检索关键词1"],
-  "topicPrimary": "主要主题",
-  "domain": "领域",
-  "oneLineSummary": "一句话总结",
-  "wordCount": 1000,
-  "filePath": "path/to/file.md"
-}
+```yaml
+---
+doc_id: "path/to/file.md"
+title: "文档标题"
+path: "path/to/file.md"
+scope: "mainline"
+domain: "领域"
+topic_primary: "主要主题"
+one_line_summary: "一句话总结"
+note_role: "concept"
+source_hash: "a1b2c3d4..."
+build_status: "success"
+generated_at: "2026-04-28T12:00:00+00:00"
+tags:
+  - "标签1"
+  - "标签2"
+headings:
+  - "标题1"
+  - "标题2"
+retrieval_keywords:
+  - "关键词1"
+  - "关键词2"
+outlinks:
+  - "关联文档1"
+topic_secondary: []
+question_types: []
+best_for: []
+not_for: []
+read_with: []
+---
+
+# 文档标题
+
+一句话总结内容
 ```
 
-新增字段说明：
-- `retrievalKeywords`：用于排序加分的检索关键词
-- `topicPrimary`：主要主题，用于排序加分
-- `domain`：领域分类，同领域文章加分
-- `oneLineSummary`：一句话总结，拓展文章的上下文摘要
+### 统一字段说明（19 字段）
+
+| 分组 | 字段 | 说明 |
+|------|------|------|
+| 身份标识 | `doc_id`, `title`, `path`, `scope` | 文档基本标识 |
+| 结构特征 | `tags`, `headings`, `outlinks` | 标签、大纲、Wiki Link |
+| 语义分类 | `domain`, `topic_primary`, `note_role`, `retrieval_keywords` 等 | 领域/主题/类型/关键词 |
+| 构建元数据 | `source_hash`, `build_status`, `generated_at` | 哈希增量 + 构建状态 |
+| 上下文 | `content` | 原始内容截断 |
+
+### 增量更新
+
+- **单文件增量**：SHA1 哈希比对，内容不变则跳过
+- **全量重建**：通过设置面板"重建索引卡"按钮触发，清理孤立卡片
+- **自动触发**：开启"自动生成索引卡"后，文件保存时自动更新
 
 ## 技术架构
 
