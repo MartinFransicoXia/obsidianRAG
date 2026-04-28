@@ -3,10 +3,25 @@ import { Vault, TFile, TFolder } from "obsidian";
 const INDEX_DIR = "00_INDEX/files";
 
 /**
+ * Simple SHA1 hash (browser-compatible)
+ */
+async function sha1(text: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const hashBuffer = await crypto.subtle.digest("SHA-1", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
  * Index card generator — parses Markdown files and generates
- * structured index cards in 00_INDEX/files/
+ * unified-field index cards in 00_INDEX/files/
  *
- * Card format: YAML frontmatter + Markdown body (title + one-line summary)
+ * Unified fields (19): docId, title, path, scope,
+ *   tags, headings, outlinks,
+ *   domain, topicPrimary, topicSecondary, noteRole, questionTypes,
+ *   oneLineSummary, retrievalKeywords, bestFor, notFor, readWith,
+ *   sourceHash, buildStatus, generatedAt, content
  */
 export class CardGenerator {
   private vault: Vault;
@@ -16,20 +31,36 @@ export class CardGenerator {
   }
 
   /**
-   * Generate an index card for a single file
+   * Generate an index card for a single file (with hash check)
    */
-  async generateCard(file: TFile): Promise<void> {
+  async generateCard(file: TFile, force: boolean = false): Promise<boolean> {
     const content = await this.vault.cachedRead(file);
+    const newHash = await sha1(content);
+
+    // Hash-based incremental: skip if unchanged
+    if (!force) {
+      const cardPath = `${INDEX_DIR}/${file.basename}.md`;
+      const existing = this.vault.getAbstractFileByPath(cardPath);
+      if (existing instanceof TFile) {
+        const cardContent = await this.vault.cachedRead(existing);
+        const storedHash = this.extractHashFromFrontmatter(cardContent);
+        if (storedHash === newHash) return false;
+      }
+    }
+
     const fm = this.parseFrontmatter(content);
     const body = this.stripFrontmatter(content);
     const title = this.extractTitle(body, file.basename);
-    const links = this.extractWikiLinks(content);
+    const rawLinks = this.extractWikiLinks(content);
+    const validLinks = await this.validateLinks(rawLinks);
     const tags = this.extractTags(content, fm);
+    const headings = this.extractHeadings(body);
     const domain = this.extractDomain(file.path);
     const oneLine = this.extractOneLineSummary(body);
     const keywords = this.extractKeywords(content, title);
+    const noteRole = this.inferNoteRole(content);
 
-    const cardFrontmatter = this.buildCardFrontmatter({
+    const cardContent = this.buildCardFile({
       docId: file.path,
       title,
       path: file.path,
@@ -38,11 +69,13 @@ export class CardGenerator {
       topicPrimary: title,
       oneLineSummary: oneLine,
       tags,
+      headings,
       retrievalKeywords: keywords,
-      relatedFiles: links,
+      outlinks: validLinks,
+      noteRole,
+      sourceHash: newHash,
     });
 
-    const cardContent = `---\n${cardFrontmatter}---\n\n# ${title}\n\n${oneLine}`;
     const cardPath = `${INDEX_DIR}/${file.basename}.md`;
 
     // Ensure directory exists
@@ -58,34 +91,21 @@ export class CardGenerator {
     } else {
       await this.vault.create(cardPath, cardContent);
     }
+    return true;
   }
 
   /**
    * Generate cards for all markdown files in the vault
    */
   async generateAll(force: boolean = false): Promise<number> {
-    const dir = this.vault.getAbstractFileByPath(INDEX_DIR);
-    const existingCards = new Set<string>();
-    if (dir instanceof TFolder) {
-      for (const child of dir.children) {
-        if (child instanceof TFile) {
-          existingCards.add(child.basename);
-        }
-      }
-    }
-
     const files = this.vault.getMarkdownFiles();
     let count = 0;
 
     for (const file of files) {
-      // Skip files in 00_INDEX directory itself
       if (file.path.startsWith(INDEX_DIR)) continue;
-      // Skip existing cards unless force
-      if (!force && existingCards.has(file.basename)) continue;
-
       try {
-        await this.generateCard(file);
-        count++;
+        const changed = await this.generateCard(file, force);
+        if (changed) count++;
       } catch (e) {
         console.warn(`[RAG] Failed to generate card for ${file.path}:`, e);
       }
@@ -110,7 +130,28 @@ export class CardGenerator {
    */
   async renameCard(oldName: string, newFile: TFile): Promise<void> {
     await this.deleteCard(oldName);
-    await this.generateCard(newFile);
+    await this.generateCard(newFile, true);
+  }
+
+  // ── Link validation ──────────────────────────────────────
+
+  private async validateLinks(links: string[]): Promise<string[]> {
+    const valid: string[] = [];
+    for (const link of links) {
+      const clean = link.replace(/\.md$/, "");
+      // Try exact path match
+      const file = this.vault.getAbstractFileByPath(clean + ".md");
+      if (file instanceof TFile) {
+        valid.push(link);
+        continue;
+      }
+      // Try as resolved link (Obsidian link resolution)
+      const resolved = this.vault.getAbstractFileByPath(link);
+      if (resolved instanceof TFile) {
+        valid.push(link);
+      }
+    }
+    return valid;
   }
 
   // ── Parsing helpers ──────────────────────────────────────
@@ -183,7 +224,6 @@ export class CardGenerator {
 
   private extractTags(content: string, fm: Record<string, string>): string[] {
     const tags: string[] = [];
-    // From frontmatter
     if (fm.tags) {
       const tagList = fm.tags.split("\n").length > 1
         ? fm.tags.split("\n")
@@ -193,13 +233,22 @@ export class CardGenerator {
         if (clean) tags.push(clean);
       }
     }
-    // Inline #tags
     const inlineRegex = /(?:^|\s)#([一-鿿\w]{2,})/g;
     let match;
     while ((match = inlineRegex.exec(content)) !== null) {
       if (!tags.includes(match[1])) tags.push(match[1]);
     }
     return tags;
+  }
+
+  private extractHeadings(body: string): string[] {
+    const headings: string[] = [];
+    const regex = /^#{1,3}\s+(.+)$/gm;
+    let match;
+    while ((match = regex.exec(body)) !== null) {
+      headings.push(match[1].trim());
+    }
+    return headings;
   }
 
   private extractDomain(path: string): string {
@@ -221,7 +270,6 @@ export class CardGenerator {
     const keywords: string[] = [];
     if (title) keywords.push(title.replace(/[#\-_]/g, " ").trim());
 
-    // Extract meaningful words (Chinese 2+, English 3+)
     const words = content.match(/[一-鿿]{2,}|[a-zA-Z]{3,}/g) || [];
     const freq: Record<string, number> = {};
     for (const w of words) {
@@ -241,7 +289,28 @@ export class CardGenerator {
     return keywords;
   }
 
-  private buildCardFrontmatter(data: {
+  private inferNoteRole(content: string): string {
+    const patterns: [string, RegExp][] = [
+      ["howto", /(?:^|\n)##?\s*(?:步骤|操作|方法|如何|怎么|教程|Step)/i],
+      ["reference", /(?:^|\n)##?\s*(?:参考|Ref|API|参数|配置|字段|属性)/i],
+      ["concept", /(?:^|\n)##?\s*(?:原理|概念|理论|机制|定义|什么是)/i],
+      ["project", /(?:^|\n)##?\s*(?:进度|计划|TODO|任务|里程碑)/i],
+      ["moc", /(?:^|\n)##?\s*(?:目录|索引|导航|MOC|Map)/i],
+    ];
+    for (const [role, pattern] of patterns) {
+      if (pattern.test(content)) return role;
+    }
+    return "mixed";
+  }
+
+  private extractHashFromFrontmatter(cardContent: string): string {
+    const match = cardContent.match(/source_hash:\s*"([a-f0-9]+)"/);
+    return match ? match[1] : "";
+  }
+
+  // ── Build card file ──────────────────────────────────────
+
+  private buildCardFile(data: {
     docId: string;
     title: string;
     path: string;
@@ -250,8 +319,11 @@ export class CardGenerator {
     topicPrimary: string;
     oneLineSummary: string;
     tags: string[];
+    headings: string[];
     retrievalKeywords: string[];
-    relatedFiles: string[];
+    outlinks: string[];
+    noteRole: string;
+    sourceHash: string;
   }): string {
     const escape = (s: string) => s.replace(/"/g, '\\"').replace(/\n/g, " ");
     const lines: string[] = [
@@ -262,7 +334,10 @@ export class CardGenerator {
       `domain: "${escape(data.domain)}"`,
       `topic_primary: "${escape(data.topicPrimary)}"`,
       `one_line_summary: "${escape(data.oneLineSummary)}"`,
-      `question_type: ""`,
+      `note_role: "${data.noteRole}"`,
+      `source_hash: "${data.sourceHash}"`,
+      `build_status: "success"`,
+      `generated_at: "${new Date().toISOString()}"`,
     ];
 
     if (data.tags.length) {
@@ -272,6 +347,13 @@ export class CardGenerator {
       lines.push("tags: []");
     }
 
+    if (data.headings.length) {
+      lines.push("headings:");
+      for (const h of data.headings.slice(0, 20)) lines.push(`  - "${escape(h)}"`);
+    } else {
+      lines.push("headings: []");
+    }
+
     if (data.retrievalKeywords.length) {
       lines.push("retrieval_keywords:");
       for (const kw of data.retrievalKeywords.slice(0, 8)) lines.push(`  - "${escape(kw)}"`);
@@ -279,13 +361,21 @@ export class CardGenerator {
       lines.push("retrieval_keywords: []");
     }
 
-    if (data.relatedFiles.length) {
-      lines.push("related_files:");
-      for (const link of data.relatedFiles.slice(0, 20)) lines.push(`  - "${escape(link)}"`);
+    if (data.outlinks.length) {
+      lines.push("outlinks:");
+      for (const link of data.outlinks.slice(0, 20)) lines.push(`  - "${escape(link)}"`);
     } else {
-      lines.push("related_files: []");
+      lines.push("outlinks: []");
     }
 
-    return lines.join("\n") + "\n";
+    // Empty lists for LLM-generated fields
+    lines.push("topic_secondary: []");
+    lines.push("question_types: []");
+    lines.push("best_for: []");
+    lines.push("not_for: []");
+    lines.push("read_with: []");
+
+    const fm = lines.join("\n") + "\n";
+    return `---\n${fm}---\n\n# ${data.title}\n\n${data.oneLineSummary}`;
   }
 }

@@ -83,7 +83,7 @@ export function boostByCardFields(
     let bonus = 0;
 
     // retrieval_keywords match
-    const keywords = card.retrievalKeywords || card.keywords || [];
+    const keywords = card.retrievalKeywords || [];
     for (const kw of keywords) {
       const kwLower = kw.toLowerCase();
       if (queryLower.includes(kwLower) || kwLower.includes(queryLower)) {
@@ -99,7 +99,7 @@ export function boostByCardFields(
     }
 
     // topic_primary match
-    const topic = card.topicPrimary || (card.topics?.[0] || "");
+    const topic = card.topicPrimary || "";
     if (topic && (queryLower.includes(topic.toLowerCase()) || topic.toLowerCase().includes(queryLower))) {
       bonus += 0.08;
     }

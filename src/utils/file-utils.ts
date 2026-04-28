@@ -59,22 +59,85 @@ export function getAllMarkdownFiles(vault: Vault): TFile[] {
 }
 
 /**
- * Read an index card file (JSON format from 00_INDEX/files/)
+ * Parse YAML frontmatter from a card file (no PyYAML dependency)
+ */
+function parseCardFrontmatter(content: string): Record<string, string> {
+  const fm: Record<string, string> = {};
+  const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
+  if (!match) return fm;
+
+  const lines = match[1].split("\n");
+  let currentKey: string | null = null;
+  let currentList: string[] = [];
+
+  for (const line of lines) {
+    const listMatch = line.match(/^\s{2,}-\s+(.+)$/);
+    if (listMatch && currentKey) {
+      currentList.push(listMatch[1].trim().replace(/^["']|["']$/g, ""));
+      continue;
+    }
+    if (currentKey && currentList.length) {
+      fm[currentKey] = currentList.join("\n");
+      currentList = [];
+      currentKey = null;
+    }
+    const kv = line.match(/^([\w_]+)\s*:\s*(.*)$/);
+    if (kv) {
+      const key = kv[1];
+      const val = kv[2].trim().replace(/^["']|["']$/g, "");
+      if (val) {
+        fm[key] = val;
+      } else {
+        currentKey = key;
+        currentList = [];
+      }
+    }
+  }
+  if (currentKey && currentList.length) {
+    fm[currentKey] = currentList.join("\n");
+  }
+  return fm;
+}
+
+function parseYamlList(raw: string): string[] {
+  if (!raw) return [];
+  if (raw.includes("\n")) {
+    return raw.split("\n").filter(l => l.trim()).map(l => l.trim().replace(/^["']|["']$/g, ""));
+  }
+  return raw.split(",").filter(x => x.trim()).map(x => x.trim().replace(/^["']|["']$/g, ""));
+}
+
+/**
+ * Read an index card file (YAML frontmatter + Markdown from 00_INDEX/files/)
  */
 export async function readIndexCard(file: TFile, vault: Vault): Promise<IndexCard | null> {
   try {
     const content = await vault.cachedRead(file);
-    const data = JSON.parse(content);
+    const fm = parseCardFrontmatter(content);
+    if (!fm.doc_id && !fm.title) return null;
+
     return {
-      id: data.id || file.path,
-      title: data.title || file.basename,
-      summary: data.summary || "",
-      topics: data.topics || [],
-      links: data.links || [],
-      keywords: data.keywords || [],
-      wordCount: data.wordCount || 0,
-      lastModified: data.lastModified || file.stat.mtime,
-      filePath: data.filePath || ""
+      docId: fm.doc_id || file.path,
+      title: fm.title || file.basename,
+      path: fm.path || file.path,
+      scope: fm.scope || "mainline",
+      tags: parseYamlList(fm.tags || ""),
+      headings: parseYamlList(fm.headings || ""),
+      outlinks: parseYamlList(fm.outlinks || ""),
+      domain: fm.domain || "",
+      topicPrimary: fm.topic_primary || "",
+      topicSecondary: parseYamlList(fm.topic_secondary || ""),
+      noteRole: fm.note_role || "mixed",
+      questionTypes: parseYamlList(fm.question_types || ""),
+      oneLineSummary: fm.one_line_summary || "",
+      retrievalKeywords: parseYamlList(fm.retrieval_keywords || ""),
+      bestFor: parseYamlList(fm.best_for || ""),
+      notFor: parseYamlList(fm.not_for || ""),
+      readWith: parseYamlList(fm.read_with || ""),
+      sourceHash: fm.source_hash || "",
+      buildStatus: fm.build_status || "success",
+      generatedAt: fm.generated_at || "",
+      content: content.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, "").substring(0, 2000),
     };
   } catch {
     return null;
@@ -92,7 +155,7 @@ export async function getIndexCards(vault: Vault): Promise<IndexCard[]> {
 
   const cards: IndexCard[] = [];
   for (const child of indexFolder.children) {
-    if (child instanceof TFile && child.extension === "json") {
+    if (child instanceof TFile && child.extension === "md") {
       const card = await readIndexCard(child, vault);
       if (card) cards.push(card);
     }
@@ -106,7 +169,7 @@ export async function getIndexCards(vault: Vault): Promise<IndexCard[]> {
 export function tokenize(text: string): string[] {
   return text
     .toLowerCase()
-    .replace(/[^\w\u4e00-\u9fff\s]/g, " ")
+    .replace(/[^\w一-鿿\s]/g, " ")
     .split(/\s+/)
     .filter(token => token.length > 1);
 }

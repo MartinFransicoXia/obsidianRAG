@@ -44,9 +44,9 @@ function buildPipelinePrompt(
       // Expansion articles: use card summary + keywords
       const card = cards.get(r.docId) || r.card;
       if (card) {
-        const summary = card.oneLineSummary || card.summary;
+        const summary = card.oneLineSummary;
         if (summary) prompt += `摘要：${summary.substring(0, 200)}\n`;
-        const kw = card.retrievalKeywords || card.keywords;
+        const kw = card.retrievalKeywords;
         if (kw?.length) prompt += `关键词：${kw.slice(0, 5).join(", ")}\n`;
       }
     } else {

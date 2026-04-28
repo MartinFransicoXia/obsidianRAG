@@ -29,9 +29,9 @@ export class IndexCardStore {
     this.allKnownPaths.clear();
 
     for (const card of cards) {
-      const path = card.filePath || card.id;
+      const path = card.path || card.docId;
       this.cardsByPath.set(path.toLowerCase(), card);
-      this.cardsById.set(card.id, card);
+      this.cardsById.set(card.docId, card);
       this.allKnownPaths.add(path.toLowerCase());
       // Also store by basename for fuzzy matching
       const basename = path.replace(/\.md$/, "").split("/").pop()?.toLowerCase();
@@ -73,7 +73,7 @@ export class IndexCardStore {
     if (!card) return [];
 
     const linked: string[] = [];
-    const allLinks = [...(card.links || []), ...(card.keywords || [])];
+    const allLinks = [...(card.outlinks || []), ...(card.readWith || [])];
 
     for (const link of allLinks) {
       const clean = link.trim().replace(/\.md$/, "").toLowerCase();

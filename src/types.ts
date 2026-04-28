@@ -135,19 +135,32 @@ export interface PipelineResult {
 // ============================================
 
 export interface IndexCard {
-  id: string;
+  // ── 身份标识 ──
+  docId: string;
   title: string;
-  summary: string;
-  topics: string[];
-  links: string[];
-  keywords: string[];
-  wordCount: number;
-  lastModified: number;
-  filePath: string;
-  retrievalKeywords?: string[];
-  topicPrimary?: string;
-  domain?: string;
-  oneLineSummary?: string;
+  path: string;
+  scope: string;
+  // ── 结构特征 ──
+  tags: string[];
+  headings: string[];
+  outlinks: string[];
+  // ── 语义分类 ──
+  domain: string;
+  topicPrimary: string;
+  topicSecondary: string[];
+  noteRole: string;
+  questionTypes: string[];
+  oneLineSummary: string;
+  retrievalKeywords: string[];
+  bestFor: string[];
+  notFor: string[];
+  readWith: string[];
+  // ── 构建元数据 ──
+  sourceHash: string;
+  buildStatus: string;
+  generatedAt: string;
+  // ── 上下文 ──
+  content: string;
 }
 
 export interface InvertedIndex {

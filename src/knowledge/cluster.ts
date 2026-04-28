@@ -26,13 +26,13 @@ export class DocumentClusterer {
     for (const doc of documents) {
       // Find matching index card
       const card = this.indexCards.find(
-        c => c.filePath === doc.id || c.title.toLowerCase() === doc.title.toLowerCase()
+        c => c.path === doc.id || c.title.toLowerCase() === doc.title.toLowerCase()
       );
 
-      if (card && card.topics.length > 0) {
+      if (card && card.topicPrimary) {
         // Match by topics in index card
         for (const cluster of clusters) {
-          if (card.topics.some(t => this.topicMatch(t, cluster.topic))) {
+          if (this.topicMatch(card.topicPrimary, cluster.topic)) {
             cluster.documents.push(doc);
             assigned.add(doc.id);
             break;

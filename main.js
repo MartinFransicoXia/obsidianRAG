@@ -225,20 +225,78 @@ async function fileToDocument(file, vault) {
 function getAllMarkdownFiles(vault) {
   return vault.getMarkdownFiles();
 }
+function parseCardFrontmatter(content) {
+  const fm = {};
+  const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
+  if (!match)
+    return fm;
+  const lines = match[1].split("\n");
+  let currentKey = null;
+  let currentList = [];
+  for (const line of lines) {
+    const listMatch = line.match(/^\s{2,}-\s+(.+)$/);
+    if (listMatch && currentKey) {
+      currentList.push(listMatch[1].trim().replace(/^["']|["']$/g, ""));
+      continue;
+    }
+    if (currentKey && currentList.length) {
+      fm[currentKey] = currentList.join("\n");
+      currentList = [];
+      currentKey = null;
+    }
+    const kv = line.match(/^([\w_]+)\s*:\s*(.*)$/);
+    if (kv) {
+      const key = kv[1];
+      const val = kv[2].trim().replace(/^["']|["']$/g, "");
+      if (val) {
+        fm[key] = val;
+      } else {
+        currentKey = key;
+        currentList = [];
+      }
+    }
+  }
+  if (currentKey && currentList.length) {
+    fm[currentKey] = currentList.join("\n");
+  }
+  return fm;
+}
+function parseYamlList(raw) {
+  if (!raw)
+    return [];
+  if (raw.includes("\n")) {
+    return raw.split("\n").filter((l) => l.trim()).map((l) => l.trim().replace(/^["']|["']$/g, ""));
+  }
+  return raw.split(",").filter((x) => x.trim()).map((x) => x.trim().replace(/^["']|["']$/g, ""));
+}
 async function readIndexCard(file, vault) {
   try {
     const content = await vault.cachedRead(file);
-    const data = JSON.parse(content);
+    const fm = parseCardFrontmatter(content);
+    if (!fm.doc_id && !fm.title)
+      return null;
     return {
-      id: data.id || file.path,
-      title: data.title || file.basename,
-      summary: data.summary || "",
-      topics: data.topics || [],
-      links: data.links || [],
-      keywords: data.keywords || [],
-      wordCount: data.wordCount || 0,
-      lastModified: data.lastModified || file.stat.mtime,
-      filePath: data.filePath || ""
+      docId: fm.doc_id || file.path,
+      title: fm.title || file.basename,
+      path: fm.path || file.path,
+      scope: fm.scope || "mainline",
+      tags: parseYamlList(fm.tags || ""),
+      headings: parseYamlList(fm.headings || ""),
+      outlinks: parseYamlList(fm.outlinks || ""),
+      domain: fm.domain || "",
+      topicPrimary: fm.topic_primary || "",
+      topicSecondary: parseYamlList(fm.topic_secondary || ""),
+      noteRole: fm.note_role || "mixed",
+      questionTypes: parseYamlList(fm.question_types || ""),
+      oneLineSummary: fm.one_line_summary || "",
+      retrievalKeywords: parseYamlList(fm.retrieval_keywords || ""),
+      bestFor: parseYamlList(fm.best_for || ""),
+      notFor: parseYamlList(fm.not_for || ""),
+      readWith: parseYamlList(fm.read_with || ""),
+      sourceHash: fm.source_hash || "",
+      buildStatus: fm.build_status || "success",
+      generatedAt: fm.generated_at || "",
+      content: content.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, "").substring(0, 2e3)
     };
   } catch {
     return null;
@@ -251,7 +309,7 @@ async function getIndexCards(vault) {
   }
   const cards = [];
   for (const child of indexFolder.children) {
-    if (child instanceof import_obsidian2.TFile && child.extension === "json") {
+    if (child instanceof import_obsidian2.TFile && child.extension === "md") {
       const card = await readIndexCard(child, vault);
       if (card)
         cards.push(card);
@@ -260,7 +318,7 @@ async function getIndexCards(vault) {
   return cards;
 }
 function tokenize(text) {
-  return text.toLowerCase().replace(/[^\w\u4e00-\u9fff\s]/g, " ").split(/\s+/).filter((token) => token.length > 1);
+  return text.toLowerCase().replace(/[^\w一-鿿\s]/g, " ").split(/\s+/).filter((token) => token.length > 1);
 }
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -429,9 +487,9 @@ var IndexCardStore = class {
     this.cardsById.clear();
     this.allKnownPaths.clear();
     for (const card of cards) {
-      const path = card.filePath || card.id;
+      const path = card.path || card.docId;
       this.cardsByPath.set(path.toLowerCase(), card);
-      this.cardsById.set(card.id, card);
+      this.cardsById.set(card.docId, card);
       this.allKnownPaths.add(path.toLowerCase());
       const basename = path.replace(/\.md$/, "").split("/").pop()?.toLowerCase();
       if (basename) {
@@ -470,7 +528,7 @@ var IndexCardStore = class {
     if (!card)
       return [];
     const linked = [];
-    const allLinks = [...card.links || [], ...card.keywords || []];
+    const allLinks = [...card.outlinks || [], ...card.readWith || []];
     for (const link of allLinks) {
       const clean = link.trim().replace(/\.md$/, "").toLowerCase();
       if (this.allKnownPaths.has(clean)) {
@@ -900,7 +958,7 @@ function boostByCardFields(ranked, query, cards) {
     if (!card)
       continue;
     let bonus = 0;
-    const keywords = card.retrievalKeywords || card.keywords || [];
+    const keywords = card.retrievalKeywords || [];
     for (const kw of keywords) {
       const kwLower = kw.toLowerCase();
       if (queryLower.includes(kwLower) || kwLower.includes(queryLower)) {
@@ -914,7 +972,7 @@ function boostByCardFields(ranked, query, cards) {
         }
       }
     }
-    const topic = card.topicPrimary || (card.topics?.[0] || "");
+    const topic = card.topicPrimary || "";
     if (topic && (queryLower.includes(topic.toLowerCase()) || topic.toLowerCase().includes(queryLower))) {
       bonus += 0.08;
     }
@@ -1135,11 +1193,11 @@ var DocumentClusterer = class {
     const assigned = /* @__PURE__ */ new Set();
     for (const doc of documents) {
       const card = this.indexCards.find(
-        (c) => c.filePath === doc.id || c.title.toLowerCase() === doc.title.toLowerCase()
+        (c) => c.path === doc.id || c.title.toLowerCase() === doc.title.toLowerCase()
       );
-      if (card && card.topics.length > 0) {
+      if (card && card.topicPrimary) {
         for (const cluster of clusters) {
-          if (card.topics.some((t) => this.topicMatch(t, cluster.topic))) {
+          if (this.topicMatch(card.topicPrimary, cluster.topic)) {
             cluster.documents.push(doc);
             assigned.add(doc.id);
             break;
@@ -1964,24 +2022,45 @@ var HistoryManager = class {
 // src/retrieval/card-generator.ts
 var import_obsidian3 = require("obsidian");
 var INDEX_DIR = "00_INDEX/files";
+async function sha1(text) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const hashBuffer = await crypto.subtle.digest("SHA-1", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 var CardGenerator = class {
   constructor(vault) {
     this.vault = vault;
   }
   /**
-   * Generate an index card for a single file
+   * Generate an index card for a single file (with hash check)
    */
-  async generateCard(file) {
+  async generateCard(file, force = false) {
     const content = await this.vault.cachedRead(file);
+    const newHash = await sha1(content);
+    if (!force) {
+      const cardPath2 = `${INDEX_DIR}/${file.basename}.md`;
+      const existing2 = this.vault.getAbstractFileByPath(cardPath2);
+      if (existing2 instanceof import_obsidian3.TFile) {
+        const cardContent2 = await this.vault.cachedRead(existing2);
+        const storedHash = this.extractHashFromFrontmatter(cardContent2);
+        if (storedHash === newHash)
+          return false;
+      }
+    }
     const fm = this.parseFrontmatter(content);
     const body = this.stripFrontmatter(content);
     const title = this.extractTitle(body, file.basename);
-    const links = this.extractWikiLinks(content);
+    const rawLinks = this.extractWikiLinks(content);
+    const validLinks = await this.validateLinks(rawLinks);
     const tags = this.extractTags(content, fm);
+    const headings = this.extractHeadings(body);
     const domain = this.extractDomain(file.path);
     const oneLine = this.extractOneLineSummary(body);
     const keywords = this.extractKeywords(content, title);
-    const cardFrontmatter = this.buildCardFrontmatter({
+    const noteRole = this.inferNoteRole(content);
+    const cardContent = this.buildCardFile({
       docId: file.path,
       title,
       path: file.path,
@@ -1990,15 +2069,12 @@ var CardGenerator = class {
       topicPrimary: title,
       oneLineSummary: oneLine,
       tags,
+      headings,
       retrievalKeywords: keywords,
-      relatedFiles: links
+      outlinks: validLinks,
+      noteRole,
+      sourceHash: newHash
     });
-    const cardContent = `---
-${cardFrontmatter}---
-
-# ${title}
-
-${oneLine}`;
     const cardPath = `${INDEX_DIR}/${file.basename}.md`;
     const dir = this.vault.getAbstractFileByPath(INDEX_DIR);
     if (!dir) {
@@ -2010,30 +2086,21 @@ ${oneLine}`;
     } else {
       await this.vault.create(cardPath, cardContent);
     }
+    return true;
   }
   /**
    * Generate cards for all markdown files in the vault
    */
   async generateAll(force = false) {
-    const dir = this.vault.getAbstractFileByPath(INDEX_DIR);
-    const existingCards = /* @__PURE__ */ new Set();
-    if (dir instanceof import_obsidian3.TFolder) {
-      for (const child of dir.children) {
-        if (child instanceof import_obsidian3.TFile) {
-          existingCards.add(child.basename);
-        }
-      }
-    }
     const files = this.vault.getMarkdownFiles();
     let count = 0;
     for (const file of files) {
       if (file.path.startsWith(INDEX_DIR))
         continue;
-      if (!force && existingCards.has(file.basename))
-        continue;
       try {
-        await this.generateCard(file);
-        count++;
+        const changed = await this.generateCard(file, force);
+        if (changed)
+          count++;
       } catch (e) {
         console.warn(`[RAG] Failed to generate card for ${file.path}:`, e);
       }
@@ -2055,7 +2122,24 @@ ${oneLine}`;
    */
   async renameCard(oldName, newFile) {
     await this.deleteCard(oldName);
-    await this.generateCard(newFile);
+    await this.generateCard(newFile, true);
+  }
+  // ── Link validation ──────────────────────────────────────
+  async validateLinks(links) {
+    const valid = [];
+    for (const link of links) {
+      const clean = link.replace(/\.md$/, "");
+      const file = this.vault.getAbstractFileByPath(clean + ".md");
+      if (file instanceof import_obsidian3.TFile) {
+        valid.push(link);
+        continue;
+      }
+      const resolved = this.vault.getAbstractFileByPath(link);
+      if (resolved instanceof import_obsidian3.TFile) {
+        valid.push(link);
+      }
+    }
+    return valid;
   }
   // ── Parsing helpers ──────────────────────────────────────
   parseFrontmatter(content) {
@@ -2138,6 +2222,15 @@ ${oneLine}`;
     }
     return tags;
   }
+  extractHeadings(body) {
+    const headings = [];
+    const regex = /^#{1,3}\s+(.+)$/gm;
+    let match;
+    while ((match = regex.exec(body)) !== null) {
+      headings.push(match[1].trim());
+    }
+    return headings;
+  }
   extractDomain(path) {
     const parts = path.split("/");
     return parts.length > 1 ? parts[0] : "";
@@ -2174,7 +2267,26 @@ ${oneLine}`;
     }
     return keywords;
   }
-  buildCardFrontmatter(data) {
+  inferNoteRole(content) {
+    const patterns = [
+      ["howto", /(?:^|\n)##?\s*(?:步骤|操作|方法|如何|怎么|教程|Step)/i],
+      ["reference", /(?:^|\n)##?\s*(?:参考|Ref|API|参数|配置|字段|属性)/i],
+      ["concept", /(?:^|\n)##?\s*(?:原理|概念|理论|机制|定义|什么是)/i],
+      ["project", /(?:^|\n)##?\s*(?:进度|计划|TODO|任务|里程碑)/i],
+      ["moc", /(?:^|\n)##?\s*(?:目录|索引|导航|MOC|Map)/i]
+    ];
+    for (const [role, pattern] of patterns) {
+      if (pattern.test(content))
+        return role;
+    }
+    return "mixed";
+  }
+  extractHashFromFrontmatter(cardContent) {
+    const match = cardContent.match(/source_hash:\s*"([a-f0-9]+)"/);
+    return match ? match[1] : "";
+  }
+  // ── Build card file ──────────────────────────────────────
+  buildCardFile(data) {
     const escape = (s) => s.replace(/"/g, '\\"').replace(/\n/g, " ");
     const lines = [
       `doc_id: "${escape(data.docId)}"`,
@@ -2184,7 +2296,10 @@ ${oneLine}`;
       `domain: "${escape(data.domain)}"`,
       `topic_primary: "${escape(data.topicPrimary)}"`,
       `one_line_summary: "${escape(data.oneLineSummary)}"`,
-      `question_type: ""`
+      `note_role: "${data.noteRole}"`,
+      `source_hash: "${data.sourceHash}"`,
+      `build_status: "success"`,
+      `generated_at: "${(/* @__PURE__ */ new Date()).toISOString()}"`
     ];
     if (data.tags.length) {
       lines.push("tags:");
@@ -2193,6 +2308,13 @@ ${oneLine}`;
     } else {
       lines.push("tags: []");
     }
+    if (data.headings.length) {
+      lines.push("headings:");
+      for (const h of data.headings.slice(0, 20))
+        lines.push(`  - "${escape(h)}"`);
+    } else {
+      lines.push("headings: []");
+    }
     if (data.retrievalKeywords.length) {
       lines.push("retrieval_keywords:");
       for (const kw of data.retrievalKeywords.slice(0, 8))
@@ -2200,14 +2322,25 @@ ${oneLine}`;
     } else {
       lines.push("retrieval_keywords: []");
     }
-    if (data.relatedFiles.length) {
-      lines.push("related_files:");
-      for (const link of data.relatedFiles.slice(0, 20))
+    if (data.outlinks.length) {
+      lines.push("outlinks:");
+      for (const link of data.outlinks.slice(0, 20))
         lines.push(`  - "${escape(link)}"`);
     } else {
-      lines.push("related_files: []");
+      lines.push("outlinks: []");
     }
-    return lines.join("\n") + "\n";
+    lines.push("topic_secondary: []");
+    lines.push("question_types: []");
+    lines.push("best_for: []");
+    lines.push("not_for: []");
+    lines.push("read_with: []");
+    const fm = lines.join("\n") + "\n";
+    return `---
+${fm}---
+
+# ${data.title}
+
+${data.oneLineSummary}`;
   }
 };
 
@@ -2531,11 +2664,11 @@ ${query}
     if (r.fromExpansion) {
       const card = cards.get(r.docId) || r.card;
       if (card) {
-        const summary = card.oneLineSummary || card.summary;
+        const summary = card.oneLineSummary;
         if (summary)
           prompt += `\u6458\u8981\uFF1A${summary.substring(0, 200)}
 `;
-        const kw = card.retrievalKeywords || card.keywords;
+        const kw = card.retrievalKeywords;
         if (kw?.length)
           prompt += `\u5173\u952E\u8BCD\uFF1A${kw.slice(0, 5).join(", ")}
 `;
