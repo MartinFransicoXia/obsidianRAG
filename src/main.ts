@@ -385,6 +385,24 @@ export default class EnhancedRAGPlugin extends Plugin {
   }
 
   /**
+   * Enrich index cards with LLM semantic fields
+   */
+  async enrichIndexCards(): Promise<void> {
+    new Notice("正在调用 LLM 填充语义字段...");
+    try {
+      const count = await this.cardGenerator.enrichCards(
+        this.settings.apiKey,
+        this.settings.apiBaseUrl,
+        this.settings.enrichModel,
+      );
+      new Notice(`LLM 填充完成：更新 ${count} 张索引卡`);
+    } catch (error) {
+      console.error("[RAG] Card enrichment failed:", error);
+      new Notice(`语义字段填充失败: ${(error as Error).message}`);
+    }
+  }
+
+  /**
    * Clear all caches
    */
   async clearCache(): Promise<void> {

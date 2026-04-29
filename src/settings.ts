@@ -140,43 +140,34 @@ export class RAGSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
-    // Weight Configuration
-    containerEl.createEl("h3", { text: "检索权重配置" });
+    // Index Card Enrichment
+    containerEl.createEl("h3", { text: "索引卡语义填充" });
 
     new Setting(containerEl)
-      .setName("关键词检索权重")
-      .setDesc("关键词检索的默认权重 (0-1)")
-      .addSlider(slider => slider
-        .setLimits(0, 1, 0.05)
-        .setValue(this.plugin.settings.defaultWeights.keyword)
-        .setDynamicTooltip()
+      .setName("填充模型")
+      .setDesc("用于填充 topic_secondary / question_types / best_for / not_for / read_with 的模型")
+      .addText(text => text
+        .setPlaceholder("deepseek-chat")
+        .setValue(this.plugin.settings.enrichModel)
         .onChange(async (value) => {
-          this.plugin.settings.defaultWeights.keyword = value;
+          this.plugin.settings.enrichModel = value;
           await this.plugin.saveSettings();
         }));
 
     new Setting(containerEl)
-      .setName("索引检索权重")
-      .setDesc("索引检索的默认权重 (0-1)")
-      .addSlider(slider => slider
-        .setLimits(0, 1, 0.05)
-        .setValue(this.plugin.settings.defaultWeights.index)
-        .setDynamicTooltip()
-        .onChange(async (value) => {
-          this.plugin.settings.defaultWeights.index = value;
-          await this.plugin.saveSettings();
-        }));
-
-    new Setting(containerEl)
-      .setName("向量检索权重")
-      .setDesc("向量检索的默认权重 (0-1)")
-      .addSlider(slider => slider
-        .setLimits(0, 1, 0.05)
-        .setValue(this.plugin.settings.defaultWeights.vector)
-        .setDynamicTooltip()
-        .onChange(async (value) => {
-          this.plugin.settings.defaultWeights.vector = value;
-          await this.plugin.saveSettings();
+      .setName("LLM 填充语义字段")
+      .setDesc("调用 LLM 批量填充所有索引卡的 5 个语义字段（需要已配置 API Key）")
+      .addButton(button => button
+        .setButtonText("开始填充")
+        .onClick(async () => {
+          button.setButtonText("填充中...");
+          try {
+            await this.plugin.enrichIndexCards();
+            button.setButtonText("完成");
+          } catch (e) {
+            button.setButtonText("失败");
+          }
+          setTimeout(() => button.setButtonText("开始填充"), 2000);
         }));
 
     // Performance Configuration

@@ -38,11 +38,7 @@ var DEFAULT_SETTINGS = {
   rerankModel: "qwen3-rerank",
   rerankBaseUrl: "",
   autoGenerateCards: true,
-  defaultWeights: {
-    keyword: 0.4,
-    index: 0.35,
-    vector: 0.25
-  },
+  enrichModel: "deepseek-chat",
   cacheSize: 100,
   historyRetentionDays: 30,
   enableQueryTypeDetection: true,
@@ -108,18 +104,20 @@ var RAGSettingTab = class extends import_obsidian.PluginSettingTab {
       this.plugin.settings.rerankBaseUrl = value;
       await this.plugin.saveSettings();
     }));
-    containerEl.createEl("h3", { text: "\u68C0\u7D22\u6743\u91CD\u914D\u7F6E" });
-    new import_obsidian.Setting(containerEl).setName("\u5173\u952E\u8BCD\u68C0\u7D22\u6743\u91CD").setDesc("\u5173\u952E\u8BCD\u68C0\u7D22\u7684\u9ED8\u8BA4\u6743\u91CD (0-1)").addSlider((slider) => slider.setLimits(0, 1, 0.05).setValue(this.plugin.settings.defaultWeights.keyword).setDynamicTooltip().onChange(async (value) => {
-      this.plugin.settings.defaultWeights.keyword = value;
+    containerEl.createEl("h3", { text: "\u7D22\u5F15\u5361\u8BED\u4E49\u586B\u5145" });
+    new import_obsidian.Setting(containerEl).setName("\u586B\u5145\u6A21\u578B").setDesc("\u7528\u4E8E\u586B\u5145 topic_secondary / question_types / best_for / not_for / read_with \u7684\u6A21\u578B").addText((text) => text.setPlaceholder("deepseek-chat").setValue(this.plugin.settings.enrichModel).onChange(async (value) => {
+      this.plugin.settings.enrichModel = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("\u7D22\u5F15\u68C0\u7D22\u6743\u91CD").setDesc("\u7D22\u5F15\u68C0\u7D22\u7684\u9ED8\u8BA4\u6743\u91CD (0-1)").addSlider((slider) => slider.setLimits(0, 1, 0.05).setValue(this.plugin.settings.defaultWeights.index).setDynamicTooltip().onChange(async (value) => {
-      this.plugin.settings.defaultWeights.index = value;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian.Setting(containerEl).setName("\u5411\u91CF\u68C0\u7D22\u6743\u91CD").setDesc("\u5411\u91CF\u68C0\u7D22\u7684\u9ED8\u8BA4\u6743\u91CD (0-1)").addSlider((slider) => slider.setLimits(0, 1, 0.05).setValue(this.plugin.settings.defaultWeights.vector).setDynamicTooltip().onChange(async (value) => {
-      this.plugin.settings.defaultWeights.vector = value;
-      await this.plugin.saveSettings();
+    new import_obsidian.Setting(containerEl).setName("LLM \u586B\u5145\u8BED\u4E49\u5B57\u6BB5").setDesc("\u8C03\u7528 LLM \u6279\u91CF\u586B\u5145\u6240\u6709\u7D22\u5F15\u5361\u7684 5 \u4E2A\u8BED\u4E49\u5B57\u6BB5\uFF08\u9700\u8981\u5DF2\u914D\u7F6E API Key\uFF09").addButton((button) => button.setButtonText("\u5F00\u59CB\u586B\u5145").onClick(async () => {
+      button.setButtonText("\u586B\u5145\u4E2D...");
+      try {
+        await this.plugin.enrichIndexCards();
+        button.setButtonText("\u5B8C\u6210");
+      } catch (e) {
+        button.setButtonText("\u5931\u8D25");
+      }
+      setTimeout(() => button.setButtonText("\u5F00\u59CB\u586B\u5145"), 2e3);
     }));
     containerEl.createEl("h3", { text: "\u6027\u80FD\u914D\u7F6E" });
     new import_obsidian.Setting(containerEl).setName("\u7F13\u5B58\u5927\u5C0F").setDesc("LRU \u7F13\u5B58\u6700\u5927\u6761\u76EE\u6570").addText((text) => text.setPlaceholder("100").setValue(String(this.plugin.settings.cacheSize)).onChange(async (value) => {
@@ -3099,6 +3097,23 @@ var EnhancedRAGPlugin = class extends import_obsidian7.Plugin {
     } catch (error) {
       console.error("[RAG] Index card rebuild failed:", error);
       new import_obsidian7.Notice(`\u7D22\u5F15\u5361\u91CD\u5EFA\u5931\u8D25: ${error.message}`);
+    }
+  }
+  /**
+   * Enrich index cards with LLM semantic fields
+   */
+  async enrichIndexCards() {
+    new import_obsidian7.Notice("\u6B63\u5728\u8C03\u7528 LLM \u586B\u5145\u8BED\u4E49\u5B57\u6BB5...");
+    try {
+      const count = await this.cardGenerator.enrichCards(
+        this.settings.apiKey,
+        this.settings.apiBaseUrl,
+        this.settings.enrichModel
+      );
+      new import_obsidian7.Notice(`LLM \u586B\u5145\u5B8C\u6210\uFF1A\u66F4\u65B0 ${count} \u5F20\u7D22\u5F15\u5361`);
+    } catch (error) {
+      console.error("[RAG] Card enrichment failed:", error);
+      new import_obsidian7.Notice(`\u8BED\u4E49\u5B57\u6BB5\u586B\u5145\u5931\u8D25: ${error.message}`);
     }
   }
   /**

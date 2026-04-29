@@ -21,8 +21,8 @@ export interface PluginSettings {
   rerankBaseUrl: string;  // 留空则与 apiBaseUrl 相同
   // Index cards
   autoGenerateCards: boolean;
+  enrichModel: string;  // 索引卡语义字段填充模型
   // General
-  defaultWeights: RetrievalWeights;
   cacheSize: number;
   historyRetentionDays: number;
   enableQueryTypeDetection: boolean;
@@ -43,11 +43,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   rerankModel: "qwen3-rerank",
   rerankBaseUrl: "",
   autoGenerateCards: true,
-  defaultWeights: {
-    keyword: 0.40,
-    index: 0.35,
-    vector: 0.25
-  },
+  enrichModel: "deepseek-chat",
   cacheSize: 100,
   historyRetentionDays: 30,
   enableQueryTypeDetection: true,
@@ -71,12 +67,6 @@ export enum QueryType {
 // ============================================
 // Retrieval Types
 // ============================================
-
-export interface RetrievalWeights {
-  keyword: number;
-  index: number;
-  vector: number;
-}
 
 export interface Document {
   id: string;
