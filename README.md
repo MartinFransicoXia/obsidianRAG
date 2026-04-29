@@ -86,10 +86,9 @@ npm run lint
 - **Rerank Model**：排序模型，如 `qwen3-rerank` / `gte-rerank-v2`
 - **Rerank Base URL**：Rerank API 地址（留空则与 API Base URL 相同）
 
-### 检索权重配置
-- **关键词检索权重**：默认 0.40
-- **索引检索权重**：默认 0.35
-- **向量检索权重**：默认 0.25
+### 索引卡语义填充
+- **填充模型**：用于生成 topic_secondary / question_types / best_for / not_for / read_with 的 LLM 模型，默认 `deepseek-chat`
+- **LLM 填充语义字段**：手动触发按钮，批量调用 LLM 填充所有索引卡的 5 个语义字段
 
 ### 性能配置
 - **缓存大小**：LRU 缓存最大条目数，默认 100
