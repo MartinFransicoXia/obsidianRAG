@@ -3,16 +3,30 @@ import { Document, SearchResult, PluginSettings } from "../types";
 import { CloudAPIClient } from "../cloud/api";
 import { LRUCache, hashString } from "../utils/cache-utils";
 import { fileToDocument, getAllMarkdownFiles } from "../utils/file-utils";
+import { chunkMarkdown } from "./chunker";
+
+interface ChunkInfo {
+  docId: string;
+  title: string;
+  path: string;
+  scope: string;
+}
+
+const CHUNK_TARGET = 420;
+const CHUNK_OVERLAP = 64;
+const CHUNK_MAX = 520;
 
 /**
- * Vector-based retriever using cloud embeddings + local similarity
+ * Vector-based retriever with token-level chunking (420/64/520)
+ * Chunks for embedding, merges back to document-level results.
  */
 export class VectorRetriever {
   private vault: Vault;
   private settings: PluginSettings;
   private client: CloudAPIClient;
   private documents: Map<string, Document> = new Map();
-  private embeddings: Map<string, number[]> = new Map();
+  private embeddings: Map<string, number[]> = new Map();   // chunkId → embedding
+  private chunkInfo: Map<string, ChunkInfo> = new Map();   // chunkId → doc info
   private embeddingCache: LRUCache<string, number[]>;
   private loaded = false;
 
@@ -20,7 +34,7 @@ export class VectorRetriever {
     this.vault = vault;
     this.settings = settings;
     this.client = new CloudAPIClient(settings);
-    this.embeddingCache = new LRUCache<string, number[]>(100);
+    this.embeddingCache = new LRUCache<string, number[]>(200);
   }
 
   updateSettings(settings: PluginSettings): void {
@@ -29,7 +43,7 @@ export class VectorRetriever {
   }
 
   /**
-   * Build vector index by computing embeddings for all documents
+   * Build vector index — chunk documents → embed each chunk
    */
   async buildIndex(): Promise<void> {
     if (!this.settings.apiKey) {
@@ -40,8 +54,10 @@ export class VectorRetriever {
 
     this.documents.clear();
     this.embeddings.clear();
+    this.chunkInfo.clear();
 
     const files = getAllMarkdownFiles(this.vault);
+    let totalChunks = 0;
 
     // Build document map
     for (const file of files) {
@@ -51,57 +67,61 @@ export class VectorRetriever {
 
     console.log(`[RAG] Vector index building for ${this.documents.size} documents...`);
 
-    // Compute embeddings in batches to avoid rate limits
-    const docEntries = [...this.documents.entries()];
+    // Chunk and embed in batches
     const batchSize = 5;
+    const embedJobs: Array<{ chunkId: string; text: string; info: ChunkInfo }> = [];
 
-    for (let i = 0; i < docEntries.length; i += batchSize) {
-      const batch = docEntries.slice(i, i + batchSize);
-      const promises = batch.map(async ([docId, doc]) => {
-        const text = `${doc.title}\n${doc.summary || doc.content.substring(0, 500)}`;
+    for (const [docId, doc] of this.documents) {
+      const chunks = chunkMarkdown(doc.content, CHUNK_TARGET, CHUNK_OVERLAP, CHUNK_MAX);
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const chunkId = `${docId}#chunk_${i}`;
+        const text = `${doc.title}\n${chunk.text}`;
+        embedJobs.push({
+          chunkId,
+          text,
+          info: { docId, title: doc.title, path: doc.path, scope: "mainline" },
+        });
+      }
+      totalChunks += chunks.length;
+    }
+
+    console.log(`[RAG] ${totalChunks} chunks to embed`);
+
+    for (let i = 0; i < embedJobs.length; i += batchSize) {
+      const batch = embedJobs.slice(i, i + batchSize);
+      const promises = batch.map(async ({ chunkId, text, info }) => {
         const hashKey = hashString(text);
-
-        // Check cache
         const cached = this.embeddingCache.get(hashKey);
         if (cached) {
-          this.embeddings.set(docId, cached);
+          this.embeddings.set(chunkId, cached);
+          this.chunkInfo.set(chunkId, info);
           return;
         }
-
         try {
           const embedding = await this.client.embed(text);
-          this.embeddings.set(docId, embedding);
+          this.embeddings.set(chunkId, embedding);
+          this.chunkInfo.set(chunkId, info);
           this.embeddingCache.set(hashKey, embedding);
         } catch (error) {
-          console.warn(`[RAG] Failed to embed ${docId}:`, error);
+          console.warn(`[RAG] Failed to embed chunk ${chunkId}:`, error);
         }
       });
-
       await Promise.all(promises);
-
-      // Small delay between batches to respect rate limits
-      if (i + batchSize < docEntries.length) {
+      if (i + batchSize < embedJobs.length) {
         await this.sleep(200);
       }
     }
 
     this.loaded = true;
-    console.log(`[RAG] Vector index built: ${this.embeddings.size} embeddings`);
+    console.log(`[RAG] Vector index built: ${this.embeddings.size} chunk embeddings`);
   }
 
   /**
-   * Search using vector similarity
+   * Search using vector similarity — chunk-level → merge to document-level
    */
   async search(query: string, options: { limit: number } = { limit: 30 }): Promise<SearchResult[]> {
-    if (!this.settings.apiKey) {
-      return [];
-    }
-
-    if (!this.loaded) {
-      await this.buildIndex();
-    }
-
-    if (this.embeddings.size === 0) {
+    if (!this.settings.apiKey || !this.loaded || this.embeddings.size === 0) {
       return [];
     }
 
@@ -121,32 +141,45 @@ export class VectorRetriever {
       }
     }
 
-    // Compute similarities
-    const similarities: Array<{ docId: string; similarity: number }> = [];
-    for (const [docId, embedding] of this.embeddings) {
+    // Compute chunk-level similarities
+    const similarities: Array<{ chunkId: string; similarity: number }> = [];
+    for (const [chunkId, embedding] of this.embeddings) {
       const similarity = this.cosineSimilarity(queryEmbedding, embedding);
-      similarities.push({ docId, similarity });
+      similarities.push({ chunkId, similarity });
     }
 
-    // Sort by similarity
     similarities.sort((a, b) => b.similarity - a.similarity);
-    const top = similarities.slice(0, options.limit);
 
-    // Normalize scores
-    const maxScore = top.length > 0 ? top[0].similarity : 1;
+    // Merge to document-level: keep best similarity per docId
+    const docBest = new Map<string, { similarity: number; title: string; path: string; scope: string; chunkId: string }>();
+    for (const { chunkId, similarity } of similarities) {
+      const info = this.chunkInfo.get(chunkId);
+      if (!info) continue;
+      const existing = docBest.get(info.docId);
+      if (!existing || similarity > existing.similarity) {
+        docBest.set(info.docId, {
+          similarity, title: info.title, path: info.path, scope: info.scope, chunkId,
+        });
+      }
+    }
 
+    // Sort by doc-level score
+    const topDocs = [...docBest.entries()]
+      .sort((a, b) => b[1].similarity - a[1].similarity)
+      .slice(0, options.limit);
+
+    if (!topDocs.length) return [];
+
+    const maxScore = topDocs[0][1].similarity;
     const results: SearchResult[] = [];
-    for (const { docId, similarity } of top) {
+    for (const [docId, { similarity, title, path, scope }] of topDocs) {
       const doc = this.documents.get(docId);
-      if (!doc) continue;
-
+      const snippet = doc?.summary || "";
       results.push({
-        docId,
-        title: doc.title,
-        path: doc.path,
+        docId, title, path,
         score: similarity / maxScore,
-        snippet: doc.summary || doc.content.substring(0, 200),
-        source: "vector"
+        snippet: snippet || "",
+        source: "vector",
       });
     }
 
@@ -155,16 +188,13 @@ export class VectorRetriever {
 
   /**
    * Vector search with neighbor expansion
-   *
-   * 1. Standard search to get top-N
-   * 2. Take top-K seeds, find nearest neighbors via embedding similarity
-   * 3. Merge and deduplicate, expansion results get 0.7x score
+   * Uses document-level results for neighbor discovery.
    */
   async searchWithExpansion(
     query: string,
     limit: number = 20,
     expandTopK: number = 3,
-    expandNeighbors: number = 5
+    expandNeighbors: number = 5,
   ): Promise<SearchResult[]> {
     const initial = await this.search(query, { limit });
     if (!initial.length || expandTopK <= 0) return initial;
@@ -172,22 +202,21 @@ export class VectorRetriever {
     const seenIds = new Set(initial.map(r => r.docId));
     const expanded = [...initial];
 
-    // Take top-K as expansion seeds
     const seeds = initial.slice(0, expandTopK);
     for (const seed of seeds) {
       const seedDoc = this.documents.get(seed.docId);
       if (!seedDoc) continue;
 
-      // Use seed content as query to find neighbors
-      const seedText = seedDoc.summary || seedDoc.content.substring(0, 200);
+      // Use first 300 chars as query for neighbor search
+      const seedText = seedDoc.summary || seedDoc.content.substring(0, 300);
       const neighbors = await this.search(seedText, {
-        limit: expandNeighbors + seenIds.size
+        limit: expandNeighbors + seenIds.size,
       });
 
       for (const n of neighbors) {
         if (!seenIds.has(n.docId)) {
           seenIds.add(n.docId);
-          n.score *= 0.7; // Downweight expansion results
+          n.score *= 0.7;
           expanded.push(n);
         }
       }
@@ -197,36 +226,24 @@ export class VectorRetriever {
     return expanded;
   }
 
-  /**
-   * Compute cosine similarity between two vectors
-   */
   private cosineSimilarity(a: number[], b: number[]): number {
     if (a.length !== b.length) return 0;
-
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-
+    let dotProduct = 0, normA = 0, normB = 0;
     for (let i = 0; i < a.length; i++) {
       dotProduct += a[i] * b[i];
       normA += a[i] * a[i];
       normB += b[i] * b[i];
     }
-
     const denominator = Math.sqrt(normA) * Math.sqrt(normB);
     if (denominator === 0) return 0;
-
     return dotProduct / denominator;
   }
 
-  /**
-   * Get statistics
-   */
   getStats(): { documentCount: number; embeddingCount: number; loaded: boolean } {
     return {
       documentCount: this.documents.size,
       embeddingCount: this.embeddings.size,
-      loaded: this.loaded
+      loaded: this.loaded,
     };
   }
 

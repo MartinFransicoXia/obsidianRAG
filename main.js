@@ -729,23 +729,165 @@ function hashString(str) {
   return Math.abs(hash).toString(36);
 }
 
+// src/retrieval/chunker.ts
+function estimateTokens(text) {
+  const cjk = (text.match(/[一-鿿㐀-䶿豈-﫿]/g) || []).length;
+  const words = (text.match(/[a-zA-Z]+/g) || []).length;
+  const letters = (text.match(/[a-zA-Z]/g) || []).length;
+  const remaining = text.length - cjk - letters;
+  return Math.max(1, Math.floor(cjk + words * 1.3 + remaining * 0.25));
+}
+function stripFrontmatter(content) {
+  return content.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, "");
+}
+function splitSections(content) {
+  const sections = [];
+  const headingRegex = /^#{2,3}\s+.+$/gm;
+  let lastPos = 0;
+  let match;
+  while ((match = headingRegex.exec(content)) !== null) {
+    if (match.index > lastPos) {
+      sections.push({ text: content.slice(lastPos, match.index), pos: lastPos });
+    }
+    lastPos = match.index;
+  }
+  if (lastPos < content.length) {
+    sections.push({ text: content.slice(lastPos), pos: lastPos });
+  }
+  if (sections.length === 0) {
+    sections.push({ text: content, pos: 0 });
+  }
+  return sections;
+}
+function splitParagraphs(text) {
+  const parts = text.split(/\n\s*\n/);
+  return parts.map((p) => p.trim()).filter((p) => p.length > 0);
+}
+function chunkMarkdown(content, targetTokens = 420, overlapTokens = 64, maxTokens = 520) {
+  const body = stripFrontmatter(content);
+  if (!body.trim())
+    return [];
+  const sections = splitSections(body);
+  const chunks = [];
+  let currentText = "";
+  let currentStart = sections[0]?.pos ?? 0;
+  for (const { text: secText, pos: secPos } of sections) {
+    const testText = currentText ? `${currentText}
+
+${secText}`.trim() : secText;
+    if (estimateTokens(testText) <= maxTokens) {
+      if (currentText) {
+        currentText = testText;
+      } else {
+        currentText = secText;
+        currentStart = secPos;
+      }
+    } else {
+      if (currentText) {
+        chunks.push({
+          text: currentText,
+          chunkIndex: chunks.length,
+          startChar: currentStart,
+          endChar: currentStart + currentText.length
+        });
+      }
+      if (estimateTokens(secText) > maxTokens) {
+        const paragraphs = splitParagraphs(secText);
+        let subText = "";
+        let subStart = secPos;
+        for (const para of paragraphs) {
+          const testSub = subText ? `${subText}
+
+${para}`.trim() : para;
+          if (estimateTokens(testSub) <= maxTokens) {
+            if (subText) {
+              subText = testSub;
+            } else {
+              subText = para;
+              subStart = secPos + secText.indexOf(para);
+            }
+          } else {
+            if (subText) {
+              chunks.push({
+                text: subText,
+                chunkIndex: chunks.length,
+                startChar: subStart,
+                endChar: subStart + subText.length
+              });
+            }
+            subText = para;
+            subStart = secPos + secText.indexOf(para);
+          }
+        }
+        if (subText) {
+          currentText = subText;
+          currentStart = subStart;
+        } else {
+          currentText = "";
+        }
+      } else {
+        currentText = secText;
+        currentStart = secPos;
+      }
+    }
+  }
+  if (currentText) {
+    chunks.push({
+      text: currentText,
+      chunkIndex: chunks.length,
+      startChar: currentStart,
+      endChar: currentStart + currentText.length
+    });
+  }
+  if (overlapTokens > 0 && chunks.length > 1) {
+    const overlapped = [chunks[0]];
+    for (let i = 1; i < chunks.length; i++) {
+      const prev = overlapped[overlapped.length - 1];
+      const curr = chunks[i];
+      let overlapText = "";
+      for (let j = prev.text.length - 1; j >= 0; j--) {
+        const candidate = prev.text.slice(j);
+        if (estimateTokens(candidate) >= overlapTokens) {
+          overlapText = candidate;
+          break;
+        }
+      }
+      overlapped.push({
+        text: overlapText ? `${overlapText}
+
+${curr.text}` : curr.text,
+        chunkIndex: curr.chunkIndex,
+        startChar: curr.startChar,
+        endChar: curr.endChar
+      });
+    }
+    return overlapped;
+  }
+  return chunks;
+}
+
 // src/retrieval/vector-retriever.ts
+var CHUNK_TARGET = 420;
+var CHUNK_OVERLAP = 64;
+var CHUNK_MAX = 520;
 var VectorRetriever = class {
   constructor(vault, settings) {
     this.documents = /* @__PURE__ */ new Map();
     this.embeddings = /* @__PURE__ */ new Map();
+    // chunkId → embedding
+    this.chunkInfo = /* @__PURE__ */ new Map();
     this.loaded = false;
     this.vault = vault;
     this.settings = settings;
     this.client = new CloudAPIClient(settings);
-    this.embeddingCache = new LRUCache(100);
+    this.embeddingCache = new LRUCache(200);
   }
   updateSettings(settings) {
     this.settings = settings;
     this.client.updateSettings(settings);
   }
   /**
-   * Build vector index by computing embeddings for all documents
+   * Build vector index — chunk documents → embed each chunk
    */
   async buildIndex() {
     if (!this.settings.apiKey) {
@@ -755,52 +897,64 @@ var VectorRetriever = class {
     }
     this.documents.clear();
     this.embeddings.clear();
+    this.chunkInfo.clear();
     const files = getAllMarkdownFiles(this.vault);
+    let totalChunks = 0;
     for (const file of files) {
       const doc = await fileToDocument(file, this.vault);
       this.documents.set(doc.id, doc);
     }
     console.log(`[RAG] Vector index building for ${this.documents.size} documents...`);
-    const docEntries = [...this.documents.entries()];
     const batchSize = 5;
-    for (let i = 0; i < docEntries.length; i += batchSize) {
-      const batch = docEntries.slice(i, i + batchSize);
-      const promises = batch.map(async ([docId, doc]) => {
+    const embedJobs = [];
+    for (const [docId, doc] of this.documents) {
+      const chunks = chunkMarkdown(doc.content, CHUNK_TARGET, CHUNK_OVERLAP, CHUNK_MAX);
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const chunkId = `${docId}#chunk_${i}`;
         const text = `${doc.title}
-${doc.summary || doc.content.substring(0, 500)}`;
+${chunk.text}`;
+        embedJobs.push({
+          chunkId,
+          text,
+          info: { docId, title: doc.title, path: doc.path, scope: "mainline" }
+        });
+      }
+      totalChunks += chunks.length;
+    }
+    console.log(`[RAG] ${totalChunks} chunks to embed`);
+    for (let i = 0; i < embedJobs.length; i += batchSize) {
+      const batch = embedJobs.slice(i, i + batchSize);
+      const promises = batch.map(async ({ chunkId, text, info }) => {
         const hashKey = hashString(text);
         const cached = this.embeddingCache.get(hashKey);
         if (cached) {
-          this.embeddings.set(docId, cached);
+          this.embeddings.set(chunkId, cached);
+          this.chunkInfo.set(chunkId, info);
           return;
         }
         try {
           const embedding = await this.client.embed(text);
-          this.embeddings.set(docId, embedding);
+          this.embeddings.set(chunkId, embedding);
+          this.chunkInfo.set(chunkId, info);
           this.embeddingCache.set(hashKey, embedding);
         } catch (error) {
-          console.warn(`[RAG] Failed to embed ${docId}:`, error);
+          console.warn(`[RAG] Failed to embed chunk ${chunkId}:`, error);
         }
       });
       await Promise.all(promises);
-      if (i + batchSize < docEntries.length) {
+      if (i + batchSize < embedJobs.length) {
         await this.sleep(200);
       }
     }
     this.loaded = true;
-    console.log(`[RAG] Vector index built: ${this.embeddings.size} embeddings`);
+    console.log(`[RAG] Vector index built: ${this.embeddings.size} chunk embeddings`);
   }
   /**
-   * Search using vector similarity
+   * Search using vector similarity — chunk-level → merge to document-level
    */
   async search(query, options = { limit: 30 }) {
-    if (!this.settings.apiKey) {
-      return [];
-    }
-    if (!this.loaded) {
-      await this.buildIndex();
-    }
-    if (this.embeddings.size === 0) {
+    if (!this.settings.apiKey || !this.loaded || this.embeddings.size === 0) {
       return [];
     }
     let queryEmbedding;
@@ -818,24 +972,41 @@ ${doc.summary || doc.content.substring(0, 500)}`;
       }
     }
     const similarities = [];
-    for (const [docId, embedding] of this.embeddings) {
+    for (const [chunkId, embedding] of this.embeddings) {
       const similarity = this.cosineSimilarity(queryEmbedding, embedding);
-      similarities.push({ docId, similarity });
+      similarities.push({ chunkId, similarity });
     }
     similarities.sort((a, b) => b.similarity - a.similarity);
-    const top = similarities.slice(0, options.limit);
-    const maxScore = top.length > 0 ? top[0].similarity : 1;
-    const results = [];
-    for (const { docId, similarity } of top) {
-      const doc = this.documents.get(docId);
-      if (!doc)
+    const docBest = /* @__PURE__ */ new Map();
+    for (const { chunkId, similarity } of similarities) {
+      const info = this.chunkInfo.get(chunkId);
+      if (!info)
         continue;
+      const existing = docBest.get(info.docId);
+      if (!existing || similarity > existing.similarity) {
+        docBest.set(info.docId, {
+          similarity,
+          title: info.title,
+          path: info.path,
+          scope: info.scope,
+          chunkId
+        });
+      }
+    }
+    const topDocs = [...docBest.entries()].sort((a, b) => b[1].similarity - a[1].similarity).slice(0, options.limit);
+    if (!topDocs.length)
+      return [];
+    const maxScore = topDocs[0][1].similarity;
+    const results = [];
+    for (const [docId, { similarity, title, path, scope }] of topDocs) {
+      const doc = this.documents.get(docId);
+      const snippet = doc?.summary || "";
       results.push({
         docId,
-        title: doc.title,
-        path: doc.path,
+        title,
+        path,
         score: similarity / maxScore,
-        snippet: doc.summary || doc.content.substring(0, 200),
+        snippet: snippet || "",
         source: "vector"
       });
     }
@@ -843,10 +1014,7 @@ ${doc.summary || doc.content.substring(0, 500)}`;
   }
   /**
    * Vector search with neighbor expansion
-   *
-   * 1. Standard search to get top-N
-   * 2. Take top-K seeds, find nearest neighbors via embedding similarity
-   * 3. Merge and deduplicate, expansion results get 0.7x score
+   * Uses document-level results for neighbor discovery.
    */
   async searchWithExpansion(query, limit = 20, expandTopK = 3, expandNeighbors = 5) {
     const initial = await this.search(query, { limit });
@@ -859,7 +1027,7 @@ ${doc.summary || doc.content.substring(0, 500)}`;
       const seedDoc = this.documents.get(seed.docId);
       if (!seedDoc)
         continue;
-      const seedText = seedDoc.summary || seedDoc.content.substring(0, 200);
+      const seedText = seedDoc.summary || seedDoc.content.substring(0, 300);
       const neighbors = await this.search(seedText, {
         limit: expandNeighbors + seenIds.size
       });
@@ -874,15 +1042,10 @@ ${doc.summary || doc.content.substring(0, 500)}`;
     expanded.sort((a, b) => b.score - a.score);
     return expanded;
   }
-  /**
-   * Compute cosine similarity between two vectors
-   */
   cosineSimilarity(a, b) {
     if (a.length !== b.length)
       return 0;
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
+    let dotProduct = 0, normA = 0, normB = 0;
     for (let i = 0; i < a.length; i++) {
       dotProduct += a[i] * b[i];
       normA += a[i] * a[i];
@@ -893,9 +1056,6 @@ ${doc.summary || doc.content.substring(0, 500)}`;
       return 0;
     return dotProduct / denominator;
   }
-  /**
-   * Get statistics
-   */
   getStats() {
     return {
       documentCount: this.documents.size,
