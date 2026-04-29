@@ -2029,6 +2029,18 @@ async function sha1(text) {
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
+var ENRICH_SYSTEM_PROMPT = `\u4F60\u662F\u77E5\u8BC6\u5E93\u7D22\u5F15\u4E13\u5BB6\u3002\u6839\u636E\u6587\u6863\u5361\u7247\u4FE1\u606F\uFF0C\u8865\u5145 5 \u4E2A\u8BED\u4E49\u5B57\u6BB5\u3002\u53EA\u8F93\u51FA\u5408\u6CD5 JSON\uFF0C\u4E0D\u8981\u5176\u4ED6\u5185\u5BB9\u3002
+
+\u5B57\u6BB5\u8BF4\u660E\uFF1A
+- topic_secondary: \u6D89\u53CA\u4F46\u975E\u6838\u5FC3\u7684\u5176\u4ED6\u4E3B\u9898\uFF0C0-3 \u4E2A
+- question_types: \u9002\u7528\u95EE\u9898\u7C7B\u578B\uFF0C\u4ECE\u679A\u4E3E\u9009\u62E9 1-4 \u4E2A
+  \u679A\u4E3E\uFF1Adefinition(\u5B9A\u4E49), explanation(\u539F\u7406\u89E3\u91CA), comparison(\u5BF9\u6BD4), procedure(\u6B65\u9AA4\u6D41\u7A0B), reference(\u516C\u5F0F\u6570\u636E\u53C2\u8003), troubleshooting(\u95EE\u9898\u6392\u67E5)
+- best_for: \u4EC0\u4E48\u573A\u666F\u4F18\u5148\u63A8\u8350\u8FD9\u7BC7\uFF0C1-3 \u4E2A
+- not_for: \u4EC0\u4E48\u573A\u666F\u4E0D\u63A8\u8350\u8FD9\u7BC7\uFF0C0-2 \u4E2A
+- read_with: \u5EFA\u8BAE\u4E00\u8D77\u9605\u8BFB\u7684\u6587\u4EF6\u540D\uFF0C0-3 \u4E2A\uFF08\u53EA\u5199\u6587\u4EF6\u540D\uFF0C\u4E0D\u542B\u8DEF\u5F84\u548C .md \u540E\u7F00\uFF09
+
+\u8F93\u51FA\u683C\u5F0F\uFF1A
+{"topic_secondary":["\u6B21\u4E3B\u9898"],"question_types":["definition"],"best_for":["\u573A\u666F"],"not_for":[],"read_with":["\u6587\u4EF6\u540D"]}`;
 var CardGenerator = class {
   constructor(vault) {
     this.vault = vault;
@@ -2123,6 +2135,125 @@ var CardGenerator = class {
   async renameCard(oldName, newFile) {
     await this.deleteCard(oldName);
     await this.generateCard(newFile, true);
+  }
+  // ── LLM semantic enrichment ──────────────────────────────
+  /**
+   * Call LLM to fill topic_secondary, question_types, best_for, not_for, read_with
+   * Reads all card files from 00_INDEX/files/, sends metadata to LLM, writes back updated cards.
+   */
+  async enrichCards(apiKey, apiBaseUrl, model) {
+    if (!apiKey) {
+      console.warn("[RAG] No API key configured, skipping card enrichment");
+      return 0;
+    }
+    const cardFiles = this.getCardFiles();
+    if (cardFiles.length === 0)
+      return 0;
+    const baseUrl = apiBaseUrl.replace(/\/$/, "");
+    const batchSize = 5;
+    let count = 0;
+    for (let i = 0; i < cardFiles.length; i += batchSize) {
+      const batch = cardFiles.slice(i, i + batchSize);
+      try {
+        const cardsData = [];
+        for (const file of batch) {
+          const content2 = await this.vault.cachedRead(file);
+          const fm = this.parseFrontmatter(content2);
+          const body = this.stripFrontmatter(content2);
+          cardsData.push({
+            index: cardsData.length + 1,
+            title: fm.title || file.basename,
+            domain: fm.domain || "",
+            note_role: fm.note_role || "mixed",
+            headings: this.extractHeadings(body).slice(0, 10),
+            one_line_summary: fm.one_line_summary || "",
+            retrieval_keywords: this.parseYamlList(fm.retrieval_keywords).slice(0, 5),
+            tags: this.parseYamlList(fm.tags).slice(0, 5)
+          });
+        }
+        const userMsg = cardsData.map((d) => JSON.stringify(d)).join("\n");
+        const resp = await fetch(`${baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: ENRICH_SYSTEM_PROMPT },
+              { role: "user", content: userMsg }
+            ],
+            max_tokens: 2e3,
+            temperature: 0.1,
+            response_format: { type: "json_object" }
+          })
+        });
+        if (!resp.ok) {
+          console.warn(`[RAG] Enrich batch failed: HTTP ${resp.status}`);
+          continue;
+        }
+        const data = await resp.json();
+        const content = data.choices?.[0]?.message?.content;
+        if (!content)
+          continue;
+        const results = JSON.parse(content);
+        const items = Array.isArray(results) ? results : [results];
+        for (let j = 0; j < items.length && j < batch.length; j++) {
+          const item = items[j];
+          const file = batch[j];
+          const cardContent = await this.vault.cachedRead(file);
+          const fm = this.parseFrontmatter(cardContent);
+          const body = this.stripFrontmatter(cardContent);
+          const title = this.extractTitle(body, file.basename);
+          const readWith = item.read_with || [];
+          const validatedReadWith = await this.validateLinks(readWith);
+          const newCard = this.buildCardFile({
+            docId: fm.doc_id || file.path,
+            title,
+            path: fm.path || file.path,
+            scope: fm.scope || "mainline",
+            domain: fm.domain || "",
+            topicPrimary: fm.topic_primary || title,
+            oneLineSummary: fm.one_line_summary || "",
+            tags: this.parseYamlList(fm.tags),
+            headings: this.extractHeadings(body),
+            retrievalKeywords: this.parseYamlList(fm.retrieval_keywords),
+            outlinks: this.parseYamlList(fm.outlinks),
+            noteRole: fm.note_role || "mixed",
+            sourceHash: fm.source_hash || ""
+          }, {
+            topicSecondary: item.topic_secondary || [],
+            questionTypes: item.question_types || [],
+            bestFor: item.best_for || [],
+            notFor: item.not_for || [],
+            readWith: validatedReadWith
+          });
+          await this.vault.modify(file, newCard);
+          count++;
+        }
+      } catch (e) {
+        console.warn(`[RAG] Enrich batch error:`, e);
+      }
+    }
+    if (count) {
+      console.log(`[RAG] LLM enriched ${count} index cards`);
+    }
+    return count;
+  }
+  getCardFiles() {
+    const dir = this.vault.getAbstractFileByPath(INDEX_DIR);
+    if (!(dir instanceof import_obsidian3.TFolder))
+      return [];
+    return dir.children.filter((c) => c instanceof import_obsidian3.TFile && c.extension === "md");
+  }
+  parseYamlList(raw) {
+    if (!raw)
+      return [];
+    if (raw.includes("\n")) {
+      return raw.split("\n").filter((l) => l.trim()).map((l) => l.trim().replace(/^["']|["']$/g, ""));
+    }
+    return raw.split(",").filter((x) => x.trim()).map((x) => x.trim().replace(/^["']|["']$/g, ""));
   }
   // ── Link validation ──────────────────────────────────────
   async validateLinks(links) {
@@ -2286,7 +2417,7 @@ var CardGenerator = class {
     return match ? match[1] : "";
   }
   // ── Build card file ──────────────────────────────────────
-  buildCardFile(data) {
+  buildCardFile(data, enriched) {
     const escape = (s) => s.replace(/"/g, '\\"').replace(/\n/g, " ");
     const lines = [
       `doc_id: "${escape(data.docId)}"`,
@@ -2329,11 +2460,46 @@ var CardGenerator = class {
     } else {
       lines.push("outlinks: []");
     }
-    lines.push("topic_secondary: []");
-    lines.push("question_types: []");
-    lines.push("best_for: []");
-    lines.push("not_for: []");
-    lines.push("read_with: []");
+    const ts = enriched?.topicSecondary || [];
+    const qt = enriched?.questionTypes || [];
+    const bf = enriched?.bestFor || [];
+    const nf = enriched?.notFor || [];
+    const rw = enriched?.readWith || [];
+    if (ts.length) {
+      lines.push("topic_secondary:");
+      for (const t of ts)
+        lines.push(`  - "${escape(t)}"`);
+    } else {
+      lines.push("topic_secondary: []");
+    }
+    if (qt.length) {
+      lines.push("question_types:");
+      for (const q of qt)
+        lines.push(`  - "${escape(q)}"`);
+    } else {
+      lines.push("question_types: []");
+    }
+    if (bf.length) {
+      lines.push("best_for:");
+      for (const b of bf)
+        lines.push(`  - "${escape(b)}"`);
+    } else {
+      lines.push("best_for: []");
+    }
+    if (nf.length) {
+      lines.push("not_for:");
+      for (const n of nf)
+        lines.push(`  - "${escape(n)}"`);
+    } else {
+      lines.push("not_for: []");
+    }
+    if (rw.length) {
+      lines.push("read_with:");
+      for (const r of rw)
+        lines.push(`  - "${escape(r)}"`);
+    } else {
+      lines.push("read_with: []");
+    }
     const fm = lines.join("\n") + "\n";
     return `---
 ${fm}---
