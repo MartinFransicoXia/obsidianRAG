@@ -1,13 +1,13 @@
 /**
- * IndexedDB persistence for chunk embeddings.
- * Survives Obsidian restarts — no re-embedding needed on startup.
+ * SQLite persistence for chunk embeddings via sql.js.
+ * Database file: .obsidian/plugins/obsidian-enhanced-rag/data/vectors.db
  */
 
-const DB_NAME = "obsidian-enhanced-rag";
-const DB_VERSION = 1;
-const STORE_EMBEDDINGS = "embeddings";   // chunkId → Float32Array
-const STORE_CHUNK_INFO = "chunk_info";   // chunkId → {docId, title, path, scope}
-const STORE_META = "meta";               // key-value metadata
+import { Vault } from "obsidian";
+import initSqlJs, { Database as SqlJsDatabase } from "sql.js";
+
+const DB_PATH = ".obsidian/plugins/obsidian-enhanced-rag/data/vectors.db";
+const DATA_DIR = ".obsidian/plugins/obsidian-enhanced-rag/data";
 
 interface ChunkInfo {
   docId: string;
@@ -16,175 +16,195 @@ interface ChunkInfo {
   scope: string;
 }
 
-function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_EMBEDDINGS)) {
-        db.createObjectStore(STORE_EMBEDDINGS);
-      }
-      if (!db.objectStoreNames.contains(STORE_CHUNK_INFO)) {
-        db.createObjectStore(STORE_CHUNK_INFO);
-      }
-      if (!db.objectStoreNames.contains(STORE_META)) {
-        db.createObjectStore(STORE_META);
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
+export class VectorStore {
+  private vault: Vault;
+  private db: SqlJsDatabase | null = null;
+  private _embeddings: Map<string, number[]> = new Map();
+  private _chunkInfo: Map<string, ChunkInfo> = new Map();
+  private _loaded = false;
+  private _dirty = false;
 
-export const vectorStore = {
+  constructor(vault: Vault) {
+    this.vault = vault;
+  }
+
+  get embeddings(): Map<string, number[]> { return this._embeddings; }
+  get chunkInfo(): Map<string, ChunkInfo> { return this._chunkInfo; }
+
+  private async ensureDir(): Promise<void> {
+    try { await this.vault.adapter.mkdir(DATA_DIR); } catch { /* ok */ }
+  }
+
+  private async initDB(): Promise<SqlJsDatabase> {
+    if (this.db) return this.db;
+
+    const SQL = await initSqlJs();
+    await this.ensureDir();
+
+    // Try to load existing database file
+    let buffer: ArrayBuffer | null = null;
+    try {
+      if (await this.vault.adapter.exists(DB_PATH)) {
+        buffer = await this.vault.adapter.readBinary(DB_PATH);
+      }
+    } catch { /* file doesn't exist yet */ }
+
+    this.db = buffer
+      ? new SQL.Database(new Uint8Array(buffer))
+      : new SQL.Database();
+
+    // Create tables
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS embeddings (
+        chunk_id TEXT PRIMARY KEY,
+        embedding BLOB NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS chunk_info (
+        chunk_id TEXT PRIMARY KEY,
+        doc_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        path TEXT NOT NULL,
+        scope TEXT DEFAULT 'mainline'
+      );
+      CREATE INDEX IF NOT EXISTS idx_chunk_info_doc ON chunk_info(doc_id);
+    `);
+
+    return this.db;
+  }
+
+  /** Load all data from database file into memory */
+  async load(): Promise<boolean> {
+    if (this._loaded) return true;
+    try {
+      const db = await this.initDB();
+
+      // Load embeddings
+      this._embeddings.clear();
+      const embRows = db.exec("SELECT chunk_id, embedding FROM embeddings");
+      if (embRows.length > 0) {
+        const { columns, values } = embRows[0];
+        const idIdx = columns.indexOf("chunk_id");
+        const embIdx = columns.indexOf("embedding");
+        for (const row of values) {
+          const chunkId = row[idIdx] as string;
+          const blob = row[embIdx] as Uint8Array;
+          const embedding = Array.from(new Float32Array(blob.buffer.slice(blob.byteOffset, blob.byteOffset + blob.byteLength)));
+          this._embeddings.set(chunkId, embedding);
+        }
+      }
+
+      // Load chunk info
+      this._chunkInfo.clear();
+      const ciRows = db.exec("SELECT chunk_id, doc_id, title, path, scope FROM chunk_info");
+      if (ciRows.length > 0) {
+        const { columns, values } = ciRows[0];
+        const idIdx = columns.indexOf("chunk_id");
+        const docIdx = columns.indexOf("doc_id");
+        const tIdx = columns.indexOf("title");
+        const pIdx = columns.indexOf("path");
+        const sIdx = columns.indexOf("scope");
+        for (const row of values) {
+          this._chunkInfo.set(row[idIdx] as string, {
+            docId: row[docIdx] as string,
+            title: row[tIdx] as string,
+            path: row[pIdx] as string,
+            scope: row[sIdx] as string,
+          });
+        }
+      }
+
+      this._loaded = true;
+      console.log(`[VectorStore] Loaded ${this._embeddings.size} embeddings, ${this._chunkInfo.size} chunk infos from SQLite`);
+      return true;
+    } catch (e) {
+      console.warn("[VectorStore] Failed to load database:", e);
+      return false;
+    }
+  }
+
+  /** Persist all in-memory data to the database file */
+  async save(): Promise<void> {
+    if (!this._loaded) return;
+    try {
+      const db = await this.initDB();
+
+      // Write in transaction
+      db.run("BEGIN TRANSACTION");
+
+      // Clear and repopulate embeddings
+      db.run("DELETE FROM embeddings");
+      const insertEmb = db.prepare("INSERT OR REPLACE INTO embeddings (chunk_id, embedding) VALUES (?, ?)");
+      for (const [chunkId, embedding] of this._embeddings) {
+        const arr = new Float32Array(embedding);
+        insertEmb.run([chunkId, new Uint8Array(arr.buffer)]);
+      }
+      insertEmb.free();
+
+      // Clear and repopulate chunk info
+      db.run("DELETE FROM chunk_info");
+      const insertCI = db.prepare("INSERT OR REPLACE INTO chunk_info (chunk_id, doc_id, title, path, scope) VALUES (?, ?, ?, ?, ?)");
+      for (const [chunkId, info] of this._chunkInfo) {
+        insertCI.run([chunkId, info.docId, info.title, info.path, info.scope]);
+      }
+      insertCI.free();
+
+      db.run("COMMIT");
+
+      // Write database file to disk
+      const data = db.export();
+      await this.ensureDir();
+      await this.vault.adapter.writeBinary(DB_PATH, data.buffer as ArrayBuffer);
+
+      this._dirty = false;
+    } catch (e) {
+      console.warn("[VectorStore] Failed to save database:", e);
+    }
+  }
+
+  /** Update a single embedding in-place (for batch incremental saves) */
+  async saveIncremental(newEmbeddings: Array<{ chunkId: string; embedding: number[] }>, newInfo: Array<{ chunkId: string; info: ChunkInfo }>): Promise<void> {
+    try {
+      const db = await this.initDB();
+      db.run("BEGIN TRANSACTION");
+
+      const insertEmb = db.prepare("INSERT OR REPLACE INTO embeddings (chunk_id, embedding) VALUES (?, ?)");
+      for (const { chunkId, embedding } of newEmbeddings) {
+        const arr = new Float32Array(embedding);
+        insertEmb.run([chunkId, new Uint8Array(arr.buffer)]);
+      }
+      insertEmb.free();
+
+      const insertCI = db.prepare("INSERT OR REPLACE INTO chunk_info (chunk_id, doc_id, title, path, scope) VALUES (?, ?, ?, ?, ?)");
+      for (const { chunkId, info } of newInfo) {
+        insertCI.run([chunkId, info.docId, info.title, info.path, info.scope]);
+      }
+      insertCI.free();
+
+      db.run("COMMIT");
+
+      const data = db.export();
+      await this.ensureDir();
+      await this.vault.adapter.writeBinary(DB_PATH, data.buffer as ArrayBuffer);
+    } catch (e) {
+      console.warn("[VectorStore] Failed to save incrementally:", e);
+    }
+  }
+
+  /** Clear all persisted data */
   async clear(): Promise<void> {
-    const db = await openDB();
-    const tx = db.transaction([STORE_EMBEDDINGS, STORE_CHUNK_INFO, STORE_META], "readwrite");
-    tx.objectStore(STORE_EMBEDDINGS).clear();
-    tx.objectStore(STORE_CHUNK_INFO).clear();
-    tx.objectStore(STORE_META).clear();
-    return new Promise((resolve, reject) => {
-      tx.oncomplete = () => { db.close(); resolve(); };
-      tx.onerror = () => reject(tx.error);
-    });
-  },
-
-  async putEmbedding(chunkId: string, embedding: number[]): Promise<void> {
-    const db = await openDB();
-    const tx = db.transaction(STORE_EMBEDDINGS, "readwrite");
-    tx.objectStore(STORE_EMBEDDINGS).put(new Float32Array(embedding), chunkId);
-    return new Promise((resolve, reject) => {
-      tx.oncomplete = () => { db.close(); resolve(); };
-      tx.onerror = () => reject(tx.error);
-    });
-  },
-
-  async putEmbeddingsBatch(entries: Array<{ chunkId: string; embedding: number[] }>): Promise<void> {
-    const db = await openDB();
-    const tx = db.transaction(STORE_EMBEDDINGS, "readwrite");
-    const store = tx.objectStore(STORE_EMBEDDINGS);
-    for (const { chunkId, embedding } of entries) {
-      store.put(new Float32Array(embedding), chunkId);
+    this._embeddings.clear();
+    this._chunkInfo.clear();
+    try {
+      if (await this.vault.adapter.exists(DB_PATH)) {
+        await this.vault.adapter.remove(DB_PATH);
+      }
+      // Drop in-memory DB
+      if (this.db) {
+        this.db.run("DELETE FROM embeddings");
+        this.db.run("DELETE FROM chunk_info");
+      }
+    } catch (e) {
+      console.warn("[VectorStore] Failed to clear:", e);
     }
-    return new Promise((resolve, reject) => {
-      tx.oncomplete = () => { db.close(); resolve(); };
-      tx.onerror = () => reject(tx.error);
-    });
-  },
-
-  async getEmbedding(chunkId: string): Promise<number[] | null> {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_EMBEDDINGS, "readonly");
-      const req = tx.objectStore(STORE_EMBEDDINGS).get(chunkId);
-      req.onsuccess = () => {
-        db.close();
-        const val = req.result;
-        resolve(val ? Array.from(new Float32Array(val as ArrayBuffer)) : null);
-      };
-      req.onerror = () => reject(req.error);
-    });
-  },
-
-  async getAllEmbeddings(): Promise<Map<string, number[]>> {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_EMBEDDINGS, "readonly");
-      const req = tx.objectStore(STORE_EMBEDDINGS).getAll();
-      const keysReq = tx.objectStore(STORE_EMBEDDINGS).getAllKeys();
-      let embeddings: Map<string, number[]> | null = null;
-      tx.oncomplete = () => {
-        db.close();
-        resolve(embeddings || new Map());
-      };
-      tx.onerror = () => reject(tx.error);
-      keysReq.onsuccess = () => {
-        req.onsuccess = () => {
-          const result = new Map<string, number[]>();
-          const keys = keysReq.result;
-          const values = req.result;
-          for (let i = 0; i < keys.length; i++) {
-            result.set(keys[i] as string, Array.from(new Float32Array(values[i] as ArrayBuffer)));
-          }
-          embeddings = result;
-        };
-      };
-    });
-  },
-
-  async putChunkInfo(chunkId: string, info: ChunkInfo): Promise<void> {
-    const db = await openDB();
-    const tx = db.transaction(STORE_CHUNK_INFO, "readwrite");
-    tx.objectStore(STORE_CHUNK_INFO).put(info, chunkId);
-    return new Promise((resolve, reject) => {
-      tx.oncomplete = () => { db.close(); resolve(); };
-      tx.onerror = () => reject(tx.error);
-    });
-  },
-
-  async putChunkInfoBatch(entries: Array<{ chunkId: string; info: ChunkInfo }>): Promise<void> {
-    const db = await openDB();
-    const tx = db.transaction(STORE_CHUNK_INFO, "readwrite");
-    const store = tx.objectStore(STORE_CHUNK_INFO);
-    for (const { chunkId, info } of entries) {
-      store.put(info, chunkId);
-    }
-    return new Promise((resolve, reject) => {
-      tx.oncomplete = () => { db.close(); resolve(); };
-      tx.onerror = () => reject(tx.error);
-    });
-  },
-
-  async getAllChunkInfo(): Promise<Map<string, ChunkInfo>> {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_CHUNK_INFO, "readonly");
-      const req = tx.objectStore(STORE_CHUNK_INFO).getAll();
-      const keysReq = tx.objectStore(STORE_CHUNK_INFO).getAllKeys();
-      let result: Map<string, ChunkInfo> | null = null;
-      tx.oncomplete = () => { db.close(); resolve(result || new Map()); };
-      tx.onerror = () => reject(tx.error);
-      keysReq.onsuccess = () => {
-        req.onsuccess = () => {
-          result = new Map<string, ChunkInfo>();
-          const keys = keysReq.result;
-          const values = req.result;
-          for (let i = 0; i < keys.length; i++) {
-            result.set(keys[i] as string, values[i] as ChunkInfo);
-          }
-        };
-      };
-    });
-  },
-
-  async embeddingCount(): Promise<number> {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_EMBEDDINGS, "readonly");
-      const req = tx.objectStore(STORE_EMBEDDINGS).count();
-      req.onsuccess = () => { db.close(); resolve(req.result); };
-      req.onerror = () => reject(req.error);
-    });
-  },
-
-  /** Store metadata like last build time or content hashes */
-  async setMeta(key: string, value: string): Promise<void> {
-    const db = await openDB();
-    const tx = db.transaction(STORE_META, "readwrite");
-    tx.objectStore(STORE_META).put(value, key);
-    return new Promise((resolve, reject) => {
-      tx.oncomplete = () => { db.close(); resolve(); };
-      tx.onerror = () => reject(tx.error);
-    });
-  },
-
-  async getMeta(key: string): Promise<string | null> {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_META, "readonly");
-      const req = tx.objectStore(STORE_META).get(key);
-      req.onsuccess = () => { db.close(); resolve((req.result as string) || null); };
-      req.onerror = () => reject(req.error);
-    });
-  },
-};
+  }
+}
