@@ -4,7 +4,7 @@ import { CloudAPIClient } from "../cloud/api";
 import { LRUCache, hashString } from "../utils/cache-utils";
 import { fileToDocument, getAllMarkdownFiles } from "../utils/file-utils";
 import { chunkMarkdown } from "./chunker";
-import { vectorStore } from "../utils/vector-store";
+import { VectorStore } from "../utils/vector-store";
 
 interface ChunkInfo {
   docId: string;
@@ -18,17 +18,15 @@ const CHUNK_OVERLAP = 64;
 const CHUNK_MAX = 520;
 
 /**
- * Vector-based retriever with token-level chunking (420/64/520) + IndexedDB persistence.
- * Chunks for embedding, merges back to document-level results.
- * Embeddings survive Obsidian restarts — no full re-embed on each startup.
+ * Vector-based retriever with token-level chunking (420/64/520) + local file persistence.
+ * Embeddings stored in .obsidian/plugins/obsidian-enhanced-rag/data/
  */
 export class VectorRetriever {
   private vault: Vault;
   private settings: PluginSettings;
   private client: CloudAPIClient;
+  private store: VectorStore;
   private documents: Map<string, Document> = new Map();
-  private embeddings: Map<string, number[]> = new Map();   // chunkId → embedding
-  private chunkInfo: Map<string, ChunkInfo> = new Map();   // chunkId → doc info
   private queryCache: LRUCache<string, number[]>;
   private loaded = false;
 
@@ -36,6 +34,7 @@ export class VectorRetriever {
     this.vault = vault;
     this.settings = settings;
     this.client = new CloudAPIClient(settings);
+    this.store = new VectorStore(vault);
     this.queryCache = new LRUCache<string, number[]>(50);
   }
 
@@ -44,8 +43,11 @@ export class VectorRetriever {
     this.client.updateSettings(settings);
   }
 
+  private get embeddings(): Map<string, number[]> { return this.store.embeddings; }
+  private get chunkInfo(): Map<string, ChunkInfo> { return this.store.chunkInfo; }
+
   /**
-   * Build vector index — restore from IndexedDB → embed only new/unknown chunks
+   * Build vector index — restore from local files → embed only new/unknown chunks
    */
   async buildIndex(): Promise<void> {
     if (!this.settings.apiKey) {
@@ -54,20 +56,10 @@ export class VectorRetriever {
       return;
     }
 
-    // 1) Load persisted embeddings from IndexedDB
-    const persistedCount = await vectorStore.embeddingCount();
-    if (persistedCount > 0) {
-      console.log(`[RAG] Restoring ${persistedCount} embeddings from IndexedDB...`);
-      const [storedEmbeddings, storedChunkInfo] = await Promise.all([
-        vectorStore.getAllEmbeddings(),
-        vectorStore.getAllChunkInfo(),
-      ]);
-      this.embeddings = storedEmbeddings;
-      this.chunkInfo = storedChunkInfo;
-      console.log(`[RAG] Restored ${this.embeddings.size} chunk embeddings`);
-    } else {
-      this.embeddings.clear();
-      this.chunkInfo.clear();
+    // 1) Load persisted embeddings from plugin data directory
+    const hasData = await this.store.load();
+    if (hasData) {
+      console.log(`[RAG] Restored ${this.embeddings.size} chunk embeddings from plugin data dir`);
     }
 
     // 2) Build document map
@@ -91,12 +83,10 @@ export class VectorRetriever {
         totalChunks++;
         if (!persistedIds.has(chunkId)) {
           newJobs.push({
-            chunkId,
-            text,
+            chunkId, text,
             info: { docId, title: doc.title, path: doc.path, scope: "mainline" },
           });
         }
-        // Ensure chunkInfo is up-to-date even for persisted chunks
         if (!this.chunkInfo.has(chunkId)) {
           this.chunkInfo.set(chunkId, { docId, title: doc.title, path: doc.path, scope: "mainline" });
         }
@@ -110,48 +100,31 @@ export class VectorRetriever {
       return;
     }
 
-    // 4) Embed new chunks in batches, persist immediately
+    // 4) Embed new chunks in batches, save incrementally
     const batchSize = 5;
     for (let i = 0; i < newJobs.length; i += batchSize) {
       const batch = newJobs.slice(i, i + batchSize);
-      const embedBatch: Array<{ chunkId: string; embedding: number[] }> = [];
-      const infoBatch: Array<{ chunkId: string; info: ChunkInfo }> = [];
-
-      const promises = batch.map(async ({ chunkId, text, info }) => {
+      await Promise.all(batch.map(async ({ chunkId, text, info }) => {
         try {
           const embedding = await this.client.embed(text);
           this.embeddings.set(chunkId, embedding);
           this.chunkInfo.set(chunkId, info);
-          embedBatch.push({ chunkId, embedding });
-          infoBatch.push({ chunkId, info });
         } catch (error) {
           console.warn(`[RAG] Failed to embed chunk ${chunkId}:`, error);
         }
-      });
-      await Promise.all(promises);
-
-      // Persist to IndexedDB
-      if (embedBatch.length > 0) {
-        await Promise.all([
-          vectorStore.putEmbeddingsBatch(embedBatch),
-          vectorStore.putChunkInfoBatch(infoBatch),
-        ]);
-      }
-
-      if (i + batchSize < newJobs.length) {
-        await this.sleep(200);
-      }
+      }));
+      // Save after each batch
+      await this.store.save();
+      if (i + batchSize < newJobs.length) await this.sleep(200);
     }
 
     this.loaded = true;
     console.log(`[RAG] Vector index built: ${this.embeddings.size} chunk embeddings persisted`);
   }
 
-  /** Clear all persisted embeddings (force full rebuild next time) */
+  /** Clear persisted embeddings */
   async clearStore(): Promise<void> {
-    await vectorStore.clear();
-    this.embeddings.clear();
-    this.chunkInfo.clear();
+    await this.store.clear();
   }
 
   /**
