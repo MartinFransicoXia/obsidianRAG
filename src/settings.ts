@@ -92,6 +92,17 @@ export class RAGSettingTab extends PluginSettingTab {
         }));
 
     new Setting(containerEl)
+      .setName("Embedding API Key")
+      .setDesc("Embedding API 密钥（留空则使用 Chat 的 API Key）")
+      .addText(text => text
+        .setPlaceholder("留空则共用")
+        .setValue(this.plugin.settings.embeddingApiKey)
+        .onChange(async (value) => {
+          this.plugin.settings.embeddingApiKey = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
       .setName("Embedding 维度")
       .setDesc("向量维度（text-embedding-v4 支持 64-2048）")
       .addText(text => text
@@ -137,6 +148,17 @@ export class RAGSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.rerankBaseUrl)
         .onChange(async (value) => {
           this.plugin.settings.rerankBaseUrl = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName("Rerank API Key")
+      .setDesc("Rerank API 密钥（留空则使用 Chat 的 API Key）")
+      .addText(text => text
+        .setPlaceholder("留空则共用")
+        .setValue(this.plugin.settings.rerankApiKey)
+        .onChange(async (value) => {
+          this.plugin.settings.rerankApiKey = value;
           await this.plugin.saveSettings();
         }));
 

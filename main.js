@@ -33,10 +33,12 @@ var DEFAULT_SETTINGS = {
   mergeModel: "deepseek-chat",
   embeddingModel: "text-embedding-v4",
   embeddingBaseUrl: "",
+  embeddingApiKey: "",
   embeddingDimensions: 1024,
   rerankEnabled: false,
   rerankModel: "qwen3-rerank",
   rerankBaseUrl: "",
+  rerankApiKey: "",
   autoGenerateCards: true,
   enrichModel: "deepseek-chat",
   cacheSize: 100,
@@ -84,6 +86,10 @@ var RAGSettingTab = class extends import_obsidian.PluginSettingTab {
       this.plugin.settings.embeddingBaseUrl = value;
       await this.plugin.saveSettings();
     }));
+    new import_obsidian.Setting(containerEl).setName("Embedding API Key").setDesc("Embedding API \u5BC6\u94A5\uFF08\u7559\u7A7A\u5219\u4F7F\u7528 Chat \u7684 API Key\uFF09").addText((text) => text.setPlaceholder("\u7559\u7A7A\u5219\u5171\u7528").setValue(this.plugin.settings.embeddingApiKey).onChange(async (value) => {
+      this.plugin.settings.embeddingApiKey = value;
+      await this.plugin.saveSettings();
+    }));
     new import_obsidian.Setting(containerEl).setName("Embedding \u7EF4\u5EA6").setDesc("\u5411\u91CF\u7EF4\u5EA6\uFF08text-embedding-v4 \u652F\u6301 64-2048\uFF09").addText((text) => text.setPlaceholder("1024").setValue(String(this.plugin.settings.embeddingDimensions)).onChange(async (value) => {
       const num = parseInt(value, 10);
       if (!isNaN(num) && num > 0) {
@@ -102,6 +108,10 @@ var RAGSettingTab = class extends import_obsidian.PluginSettingTab {
     }));
     new import_obsidian.Setting(containerEl).setName("Rerank Base URL").setDesc("Rerank API \u5730\u5740\uFF08\u7559\u7A7A\u5219\u4E0E API Base URL \u76F8\u540C\uFF09").addText((text) => text.setPlaceholder("https://dashscope.aliyuncs.com/compatible-mode/v1").setValue(this.plugin.settings.rerankBaseUrl).onChange(async (value) => {
       this.plugin.settings.rerankBaseUrl = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("Rerank API Key").setDesc("Rerank API \u5BC6\u94A5\uFF08\u7559\u7A7A\u5219\u4F7F\u7528 Chat \u7684 API Key\uFF09").addText((text) => text.setPlaceholder("\u7559\u7A7A\u5219\u5171\u7528").setValue(this.plugin.settings.rerankApiKey).onChange(async (value) => {
+      this.plugin.settings.rerankApiKey = value;
       await this.plugin.saveSettings();
     }));
     containerEl.createEl("h3", { text: "\u7D22\u5F15\u5361\u8BED\u4E49\u586B\u5145" });
@@ -629,22 +639,24 @@ var CloudAPIClient = class {
   }
   /**
    * Generate embeddings for text
+   * Uses embeddingBaseUrl (fallback to apiBaseUrl), embeddingModel, and embeddingApiKey (fallback to apiKey).
    */
   async embed(text) {
-    if (!this.settings.apiKey) {
-      throw new Error("API key not configured");
+    const baseUrl = (this.settings.embeddingBaseUrl || this.settings.apiBaseUrl).replace(/\/$/, "");
+    const url = `${baseUrl}/embeddings`;
+    const model = this.settings.embeddingModel || "text-embedding-v4";
+    const embedKey = this.settings.embeddingApiKey || this.settings.apiKey;
+    const headers = { "Content-Type": "application/json" };
+    if (embedKey) {
+      headers["Authorization"] = `Bearer ${embedKey}`;
     }
-    const url = `${this.settings.apiBaseUrl}/embeddings`;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         const response = await fetch(url, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${this.settings.apiKey}`
-          },
+          headers,
           body: JSON.stringify({
-            model: "deepseek-embed",
+            model,
             input: text
           })
         });

@@ -14,11 +14,13 @@ export interface PluginSettings {
   // Embedding
   embeddingModel: string;
   embeddingBaseUrl: string;  // 留空则与 apiBaseUrl 相同
+  embeddingApiKey: string;   // 留空则与 apiKey 相同
   embeddingDimensions: number;
   // Rerank
   rerankEnabled: boolean;
   rerankModel: string;
-  rerankBaseUrl: string;  // 留空则与 apiBaseUrl 相同
+  rerankBaseUrl: string;     // 留空则与 apiBaseUrl 相同
+  rerankApiKey: string;      // 留空则与 apiKey 相同
   // Index cards
   autoGenerateCards: boolean;
   enrichModel: string;  // 索引卡语义字段填充模型
@@ -38,10 +40,12 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   mergeModel: "deepseek-chat",
   embeddingModel: "text-embedding-v4",
   embeddingBaseUrl: "",
+  embeddingApiKey: "",
   embeddingDimensions: 1024,
   rerankEnabled: false,
   rerankModel: "qwen3-rerank",
   rerankBaseUrl: "",
+  rerankApiKey: "",
   autoGenerateCards: true,
   enrichModel: "deepseek-chat",
   cacheSize: 100,

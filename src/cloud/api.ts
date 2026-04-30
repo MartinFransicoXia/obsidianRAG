@@ -70,24 +70,25 @@ export class CloudAPIClient {
 
   /**
    * Generate embeddings for text
+   * Uses embeddingBaseUrl (fallback to apiBaseUrl), embeddingModel, and embeddingApiKey (fallback to apiKey).
    */
   async embed(text: string): Promise<number[]> {
-    if (!this.settings.apiKey) {
-      throw new Error("API key not configured");
+    const baseUrl = (this.settings.embeddingBaseUrl || this.settings.apiBaseUrl).replace(/\/$/, "");
+    const url = `${baseUrl}/embeddings`;
+    const model = this.settings.embeddingModel || "text-embedding-v4";
+    const embedKey = this.settings.embeddingApiKey || this.settings.apiKey;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (embedKey) {
+      headers["Authorization"] = `Bearer ${embedKey}`;
     }
-
-    const url = `${this.settings.apiBaseUrl}/embeddings`;
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         const response = await fetch(url, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${this.settings.apiKey}`
-          },
+          headers,
           body: JSON.stringify({
-            model: "deepseek-embed",
+            model,
             input: text
           })
         });
