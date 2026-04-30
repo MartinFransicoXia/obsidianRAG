@@ -4,6 +4,7 @@ import { CloudAPIClient } from "../cloud/api";
 import { LRUCache, hashString } from "../utils/cache-utils";
 import { fileToDocument, getAllMarkdownFiles } from "../utils/file-utils";
 import { chunkMarkdown } from "./chunker";
+import { vectorStore } from "../utils/vector-store";
 
 interface ChunkInfo {
   docId: string;
@@ -17,8 +18,9 @@ const CHUNK_OVERLAP = 64;
 const CHUNK_MAX = 520;
 
 /**
- * Vector-based retriever with token-level chunking (420/64/520)
+ * Vector-based retriever with token-level chunking (420/64/520) + IndexedDB persistence.
  * Chunks for embedding, merges back to document-level results.
+ * Embeddings survive Obsidian restarts — no full re-embed on each startup.
  */
 export class VectorRetriever {
   private vault: Vault;
@@ -27,14 +29,14 @@ export class VectorRetriever {
   private documents: Map<string, Document> = new Map();
   private embeddings: Map<string, number[]> = new Map();   // chunkId → embedding
   private chunkInfo: Map<string, ChunkInfo> = new Map();   // chunkId → doc info
-  private embeddingCache: LRUCache<string, number[]>;
+  private queryCache: LRUCache<string, number[]>;
   private loaded = false;
 
   constructor(vault: Vault, settings: PluginSettings) {
     this.vault = vault;
     this.settings = settings;
     this.client = new CloudAPIClient(settings);
-    this.embeddingCache = new LRUCache<string, number[]>(200);
+    this.queryCache = new LRUCache<string, number[]>(50);
   }
 
   updateSettings(settings: PluginSettings): void {
@@ -43,7 +45,7 @@ export class VectorRetriever {
   }
 
   /**
-   * Build vector index — chunk documents → embed each chunk
+   * Build vector index — restore from IndexedDB → embed only new/unknown chunks
    */
   async buildIndex(): Promise<void> {
     if (!this.settings.apiKey) {
@@ -52,69 +54,104 @@ export class VectorRetriever {
       return;
     }
 
+    // 1) Load persisted embeddings from IndexedDB
+    const persistedCount = await vectorStore.embeddingCount();
+    if (persistedCount > 0) {
+      console.log(`[RAG] Restoring ${persistedCount} embeddings from IndexedDB...`);
+      const [storedEmbeddings, storedChunkInfo] = await Promise.all([
+        vectorStore.getAllEmbeddings(),
+        vectorStore.getAllChunkInfo(),
+      ]);
+      this.embeddings = storedEmbeddings;
+      this.chunkInfo = storedChunkInfo;
+      console.log(`[RAG] Restored ${this.embeddings.size} chunk embeddings`);
+    } else {
+      this.embeddings.clear();
+      this.chunkInfo.clear();
+    }
+
+    // 2) Build document map
     this.documents.clear();
-    this.embeddings.clear();
-    this.chunkInfo.clear();
-
     const files = getAllMarkdownFiles(this.vault);
-    let totalChunks = 0;
-
-    // Build document map
     for (const file of files) {
       const doc = await fileToDocument(file, this.vault);
       this.documents.set(doc.id, doc);
     }
 
-    console.log(`[RAG] Vector index building for ${this.documents.size} documents...`);
-
-    // Chunk and embed in batches
-    const batchSize = 5;
-    const embedJobs: Array<{ chunkId: string; text: string; info: ChunkInfo }> = [];
+    // 3) Identify chunks that need embedding
+    const persistedIds = new Set(this.embeddings.keys());
+    const newJobs: Array<{ chunkId: string; text: string; info: ChunkInfo }> = [];
+    let totalChunks = 0;
 
     for (const [docId, doc] of this.documents) {
       const chunks = chunkMarkdown(doc.content, CHUNK_TARGET, CHUNK_OVERLAP, CHUNK_MAX);
       for (let i = 0; i < chunks.length; i++) {
-        const chunk = chunks[i];
         const chunkId = `${docId}#chunk_${i}`;
-        const text = `${doc.title}\n${chunk.text}`;
-        embedJobs.push({
-          chunkId,
-          text,
-          info: { docId, title: doc.title, path: doc.path, scope: "mainline" },
-        });
+        const text = `${doc.title}\n${chunks[i].text}`;
+        totalChunks++;
+        if (!persistedIds.has(chunkId)) {
+          newJobs.push({
+            chunkId,
+            text,
+            info: { docId, title: doc.title, path: doc.path, scope: "mainline" },
+          });
+        }
+        // Ensure chunkInfo is up-to-date even for persisted chunks
+        if (!this.chunkInfo.has(chunkId)) {
+          this.chunkInfo.set(chunkId, { docId, title: doc.title, path: doc.path, scope: "mainline" });
+        }
       }
-      totalChunks += chunks.length;
     }
 
-    console.log(`[RAG] ${totalChunks} chunks to embed`);
+    console.log(`[RAG] ${totalChunks} chunks total, ${newJobs.length} new to embed`);
 
-    for (let i = 0; i < embedJobs.length; i += batchSize) {
-      const batch = embedJobs.slice(i, i + batchSize);
+    if (newJobs.length === 0) {
+      this.loaded = true;
+      return;
+    }
+
+    // 4) Embed new chunks in batches, persist immediately
+    const batchSize = 5;
+    for (let i = 0; i < newJobs.length; i += batchSize) {
+      const batch = newJobs.slice(i, i + batchSize);
+      const embedBatch: Array<{ chunkId: string; embedding: number[] }> = [];
+      const infoBatch: Array<{ chunkId: string; info: ChunkInfo }> = [];
+
       const promises = batch.map(async ({ chunkId, text, info }) => {
-        const hashKey = hashString(text);
-        const cached = this.embeddingCache.get(hashKey);
-        if (cached) {
-          this.embeddings.set(chunkId, cached);
-          this.chunkInfo.set(chunkId, info);
-          return;
-        }
         try {
           const embedding = await this.client.embed(text);
           this.embeddings.set(chunkId, embedding);
           this.chunkInfo.set(chunkId, info);
-          this.embeddingCache.set(hashKey, embedding);
+          embedBatch.push({ chunkId, embedding });
+          infoBatch.push({ chunkId, info });
         } catch (error) {
           console.warn(`[RAG] Failed to embed chunk ${chunkId}:`, error);
         }
       });
       await Promise.all(promises);
-      if (i + batchSize < embedJobs.length) {
+
+      // Persist to IndexedDB
+      if (embedBatch.length > 0) {
+        await Promise.all([
+          vectorStore.putEmbeddingsBatch(embedBatch),
+          vectorStore.putChunkInfoBatch(infoBatch),
+        ]);
+      }
+
+      if (i + batchSize < newJobs.length) {
         await this.sleep(200);
       }
     }
 
     this.loaded = true;
-    console.log(`[RAG] Vector index built: ${this.embeddings.size} chunk embeddings`);
+    console.log(`[RAG] Vector index built: ${this.embeddings.size} chunk embeddings persisted`);
+  }
+
+  /** Clear all persisted embeddings (force full rebuild next time) */
+  async clearStore(): Promise<void> {
+    await vectorStore.clear();
+    this.embeddings.clear();
+    this.chunkInfo.clear();
   }
 
   /**
@@ -125,76 +162,58 @@ export class VectorRetriever {
       return [];
     }
 
-    // Get query embedding
     let queryEmbedding: number[];
     const queryHash = hashString(query);
-    const cachedQuery = this.embeddingCache.get(`query:${queryHash}`);
+    const cachedQuery = this.queryCache.get(`q:${queryHash}`);
     if (cachedQuery) {
       queryEmbedding = cachedQuery;
     } else {
       try {
         queryEmbedding = await this.client.embed(query);
-        this.embeddingCache.set(`query:${queryHash}`, queryEmbedding);
+        this.queryCache.set(`q:${queryHash}`, queryEmbedding);
       } catch (error) {
         console.error("[RAG] Failed to embed query:", error);
         return [];
       }
     }
 
-    // Compute chunk-level similarities
+    // Chunk-level similarities
     const similarities: Array<{ chunkId: string; similarity: number }> = [];
     for (const [chunkId, embedding] of this.embeddings) {
-      const similarity = this.cosineSimilarity(queryEmbedding, embedding);
-      similarities.push({ chunkId, similarity });
+      similarities.push({ chunkId, similarity: this.cosineSimilarity(queryEmbedding, embedding) });
     }
-
     similarities.sort((a, b) => b.similarity - a.similarity);
 
     // Merge to document-level: keep best similarity per docId
-    const docBest = new Map<string, { similarity: number; title: string; path: string; scope: string; chunkId: string }>();
+    const docBest = new Map<string, { similarity: number; title: string; path: string; scope: string }>();
     for (const { chunkId, similarity } of similarities) {
       const info = this.chunkInfo.get(chunkId);
       if (!info) continue;
       const existing = docBest.get(info.docId);
       if (!existing || similarity > existing.similarity) {
-        docBest.set(info.docId, {
-          similarity, title: info.title, path: info.path, scope: info.scope, chunkId,
-        });
+        docBest.set(info.docId, { similarity, title: info.title, path: info.path, scope: info.scope });
       }
     }
 
-    // Sort by doc-level score
     const topDocs = [...docBest.entries()]
       .sort((a, b) => b[1].similarity - a[1].similarity)
       .slice(0, options.limit);
 
     if (!topDocs.length) return [];
-
     const maxScore = topDocs[0][1].similarity;
-    const results: SearchResult[] = [];
-    for (const [docId, { similarity, title, path, scope }] of topDocs) {
+    return topDocs.map(([docId, { similarity, title, path, scope }]) => {
       const doc = this.documents.get(docId);
-      const snippet = doc?.summary || "";
-      results.push({
+      return {
         docId, title, path,
         score: similarity / maxScore,
-        snippet: snippet || "",
-        source: "vector",
-      });
-    }
-
-    return results;
+        snippet: doc?.summary || "",
+        source: "vector" as const,
+      };
+    });
   }
 
-  /**
-   * Vector search with neighbor expansion
-   * Uses document-level results for neighbor discovery.
-   */
   async searchWithExpansion(
-    query: string,
-    limit: number = 20,
-    expandTopK: number = 3,
-    expandNeighbors: number = 5,
+    query: string, limit = 20, expandTopK = 3, expandNeighbors = 5,
   ): Promise<SearchResult[]> {
     const initial = await this.search(query, { limit });
     if (!initial.length || expandTopK <= 0) return initial;
@@ -202,17 +221,11 @@ export class VectorRetriever {
     const seenIds = new Set(initial.map(r => r.docId));
     const expanded = [...initial];
 
-    const seeds = initial.slice(0, expandTopK);
-    for (const seed of seeds) {
+    for (const seed of initial.slice(0, expandTopK)) {
       const seedDoc = this.documents.get(seed.docId);
       if (!seedDoc) continue;
-
-      // Use first 300 chars as query for neighbor search
       const seedText = seedDoc.summary || seedDoc.content.substring(0, 300);
-      const neighbors = await this.search(seedText, {
-        limit: expandNeighbors + seenIds.size,
-      });
-
+      const neighbors = await this.search(seedText, { limit: expandNeighbors + seenIds.size });
       for (const n of neighbors) {
         if (!seenIds.has(n.docId)) {
           seenIds.add(n.docId);
@@ -221,33 +234,25 @@ export class VectorRetriever {
         }
       }
     }
-
     expanded.sort((a, b) => b.score - a.score);
     return expanded;
   }
 
   private cosineSimilarity(a: number[], b: number[]): number {
     if (a.length !== b.length) return 0;
-    let dotProduct = 0, normA = 0, normB = 0;
+    let dot = 0, na = 0, nb = 0;
     for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
+      dot += a[i] * b[i];
+      na += a[i] * a[i];
+      nb += b[i] * b[i];
     }
-    const denominator = Math.sqrt(normA) * Math.sqrt(normB);
-    if (denominator === 0) return 0;
-    return dotProduct / denominator;
+    const d = Math.sqrt(na) * Math.sqrt(nb);
+    return d === 0 ? 0 : dot / d;
   }
 
-  getStats(): { documentCount: number; embeddingCount: number; loaded: boolean } {
-    return {
-      documentCount: this.documents.size,
-      embeddingCount: this.embeddings.size,
-      loaded: this.loaded,
-    };
+  getStats() {
+    return { documentCount: this.documents.size, embeddingCount: this.embeddings.size, loaded: this.loaded };
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
+  private sleep(ms: number): Promise<void> { return new Promise(r => setTimeout(r, ms)); }
 }

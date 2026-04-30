@@ -878,6 +878,201 @@ ${curr.text}` : curr.text,
   return chunks;
 }
 
+// src/utils/vector-store.ts
+var DB_NAME = "obsidian-enhanced-rag";
+var DB_VERSION = 1;
+var STORE_EMBEDDINGS = "embeddings";
+var STORE_CHUNK_INFO = "chunk_info";
+var STORE_META = "meta";
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE_EMBEDDINGS)) {
+        db.createObjectStore(STORE_EMBEDDINGS);
+      }
+      if (!db.objectStoreNames.contains(STORE_CHUNK_INFO)) {
+        db.createObjectStore(STORE_CHUNK_INFO);
+      }
+      if (!db.objectStoreNames.contains(STORE_META)) {
+        db.createObjectStore(STORE_META);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+var vectorStore = {
+  async clear() {
+    const db = await openDB();
+    const tx = db.transaction([STORE_EMBEDDINGS, STORE_CHUNK_INFO, STORE_META], "readwrite");
+    tx.objectStore(STORE_EMBEDDINGS).clear();
+    tx.objectStore(STORE_CHUNK_INFO).clear();
+    tx.objectStore(STORE_META).clear();
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+  async putEmbedding(chunkId, embedding) {
+    const db = await openDB();
+    const tx = db.transaction(STORE_EMBEDDINGS, "readwrite");
+    tx.objectStore(STORE_EMBEDDINGS).put(new Float32Array(embedding), chunkId);
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+  async putEmbeddingsBatch(entries) {
+    const db = await openDB();
+    const tx = db.transaction(STORE_EMBEDDINGS, "readwrite");
+    const store = tx.objectStore(STORE_EMBEDDINGS);
+    for (const { chunkId, embedding } of entries) {
+      store.put(new Float32Array(embedding), chunkId);
+    }
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+  async getEmbedding(chunkId) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_EMBEDDINGS, "readonly");
+      const req = tx.objectStore(STORE_EMBEDDINGS).get(chunkId);
+      req.onsuccess = () => {
+        db.close();
+        const val = req.result;
+        resolve(val ? Array.from(new Float32Array(val)) : null);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  },
+  async getAllEmbeddings() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_EMBEDDINGS, "readonly");
+      const req = tx.objectStore(STORE_EMBEDDINGS).getAll();
+      const keysReq = tx.objectStore(STORE_EMBEDDINGS).getAllKeys();
+      let embeddings = null;
+      tx.oncomplete = () => {
+        db.close();
+        resolve(embeddings || /* @__PURE__ */ new Map());
+      };
+      tx.onerror = () => reject(tx.error);
+      keysReq.onsuccess = () => {
+        req.onsuccess = () => {
+          const result = /* @__PURE__ */ new Map();
+          const keys = keysReq.result;
+          const values = req.result;
+          for (let i = 0; i < keys.length; i++) {
+            result.set(keys[i], Array.from(new Float32Array(values[i])));
+          }
+          embeddings = result;
+        };
+      };
+    });
+  },
+  async putChunkInfo(chunkId, info) {
+    const db = await openDB();
+    const tx = db.transaction(STORE_CHUNK_INFO, "readwrite");
+    tx.objectStore(STORE_CHUNK_INFO).put(info, chunkId);
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+  async putChunkInfoBatch(entries) {
+    const db = await openDB();
+    const tx = db.transaction(STORE_CHUNK_INFO, "readwrite");
+    const store = tx.objectStore(STORE_CHUNK_INFO);
+    for (const { chunkId, info } of entries) {
+      store.put(info, chunkId);
+    }
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+  async getAllChunkInfo() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_CHUNK_INFO, "readonly");
+      const req = tx.objectStore(STORE_CHUNK_INFO).getAll();
+      const keysReq = tx.objectStore(STORE_CHUNK_INFO).getAllKeys();
+      let result = null;
+      tx.oncomplete = () => {
+        db.close();
+        resolve(result || /* @__PURE__ */ new Map());
+      };
+      tx.onerror = () => reject(tx.error);
+      keysReq.onsuccess = () => {
+        req.onsuccess = () => {
+          result = /* @__PURE__ */ new Map();
+          const keys = keysReq.result;
+          const values = req.result;
+          for (let i = 0; i < keys.length; i++) {
+            result.set(keys[i], values[i]);
+          }
+        };
+      };
+    });
+  },
+  async embeddingCount() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_EMBEDDINGS, "readonly");
+      const req = tx.objectStore(STORE_EMBEDDINGS).count();
+      req.onsuccess = () => {
+        db.close();
+        resolve(req.result);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  },
+  /** Store metadata like last build time or content hashes */
+  async setMeta(key, value) {
+    const db = await openDB();
+    const tx = db.transaction(STORE_META, "readwrite");
+    tx.objectStore(STORE_META).put(value, key);
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+  async getMeta(key) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_META, "readonly");
+      const req = tx.objectStore(STORE_META).get(key);
+      req.onsuccess = () => {
+        db.close();
+        resolve(req.result || null);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }
+};
+
 // src/retrieval/vector-retriever.ts
 var CHUNK_TARGET = 420;
 var CHUNK_OVERLAP = 64;
@@ -892,14 +1087,14 @@ var VectorRetriever = class {
     this.vault = vault;
     this.settings = settings;
     this.client = new CloudAPIClient(settings);
-    this.embeddingCache = new LRUCache(200);
+    this.queryCache = new LRUCache(50);
   }
   updateSettings(settings) {
     this.settings = settings;
     this.client.updateSettings(settings);
   }
   /**
-   * Build vector index — chunk documents → embed each chunk
+   * Build vector index — restore from IndexedDB → embed only new/unknown chunks
    */
   async buildIndex() {
     if (!this.settings.apiKey) {
@@ -907,60 +1102,88 @@ var VectorRetriever = class {
       this.loaded = true;
       return;
     }
+    const persistedCount = await vectorStore.embeddingCount();
+    if (persistedCount > 0) {
+      console.log(`[RAG] Restoring ${persistedCount} embeddings from IndexedDB...`);
+      const [storedEmbeddings, storedChunkInfo] = await Promise.all([
+        vectorStore.getAllEmbeddings(),
+        vectorStore.getAllChunkInfo()
+      ]);
+      this.embeddings = storedEmbeddings;
+      this.chunkInfo = storedChunkInfo;
+      console.log(`[RAG] Restored ${this.embeddings.size} chunk embeddings`);
+    } else {
+      this.embeddings.clear();
+      this.chunkInfo.clear();
+    }
     this.documents.clear();
-    this.embeddings.clear();
-    this.chunkInfo.clear();
     const files = getAllMarkdownFiles(this.vault);
-    let totalChunks = 0;
     for (const file of files) {
       const doc = await fileToDocument(file, this.vault);
       this.documents.set(doc.id, doc);
     }
-    console.log(`[RAG] Vector index building for ${this.documents.size} documents...`);
-    const batchSize = 5;
-    const embedJobs = [];
+    const persistedIds = new Set(this.embeddings.keys());
+    const newJobs = [];
+    let totalChunks = 0;
     for (const [docId, doc] of this.documents) {
       const chunks = chunkMarkdown(doc.content, CHUNK_TARGET, CHUNK_OVERLAP, CHUNK_MAX);
       for (let i = 0; i < chunks.length; i++) {
-        const chunk = chunks[i];
         const chunkId = `${docId}#chunk_${i}`;
         const text = `${doc.title}
-${chunk.text}`;
-        embedJobs.push({
-          chunkId,
-          text,
-          info: { docId, title: doc.title, path: doc.path, scope: "mainline" }
-        });
-      }
-      totalChunks += chunks.length;
-    }
-    console.log(`[RAG] ${totalChunks} chunks to embed`);
-    for (let i = 0; i < embedJobs.length; i += batchSize) {
-      const batch = embedJobs.slice(i, i + batchSize);
-      const promises = batch.map(async ({ chunkId, text, info }) => {
-        const hashKey = hashString(text);
-        const cached = this.embeddingCache.get(hashKey);
-        if (cached) {
-          this.embeddings.set(chunkId, cached);
-          this.chunkInfo.set(chunkId, info);
-          return;
+${chunks[i].text}`;
+        totalChunks++;
+        if (!persistedIds.has(chunkId)) {
+          newJobs.push({
+            chunkId,
+            text,
+            info: { docId, title: doc.title, path: doc.path, scope: "mainline" }
+          });
         }
+        if (!this.chunkInfo.has(chunkId)) {
+          this.chunkInfo.set(chunkId, { docId, title: doc.title, path: doc.path, scope: "mainline" });
+        }
+      }
+    }
+    console.log(`[RAG] ${totalChunks} chunks total, ${newJobs.length} new to embed`);
+    if (newJobs.length === 0) {
+      this.loaded = true;
+      return;
+    }
+    const batchSize = 5;
+    for (let i = 0; i < newJobs.length; i += batchSize) {
+      const batch = newJobs.slice(i, i + batchSize);
+      const embedBatch = [];
+      const infoBatch = [];
+      const promises = batch.map(async ({ chunkId, text, info }) => {
         try {
           const embedding = await this.client.embed(text);
           this.embeddings.set(chunkId, embedding);
           this.chunkInfo.set(chunkId, info);
-          this.embeddingCache.set(hashKey, embedding);
+          embedBatch.push({ chunkId, embedding });
+          infoBatch.push({ chunkId, info });
         } catch (error) {
           console.warn(`[RAG] Failed to embed chunk ${chunkId}:`, error);
         }
       });
       await Promise.all(promises);
-      if (i + batchSize < embedJobs.length) {
+      if (embedBatch.length > 0) {
+        await Promise.all([
+          vectorStore.putEmbeddingsBatch(embedBatch),
+          vectorStore.putChunkInfoBatch(infoBatch)
+        ]);
+      }
+      if (i + batchSize < newJobs.length) {
         await this.sleep(200);
       }
     }
     this.loaded = true;
-    console.log(`[RAG] Vector index built: ${this.embeddings.size} chunk embeddings`);
+    console.log(`[RAG] Vector index built: ${this.embeddings.size} chunk embeddings persisted`);
+  }
+  /** Clear all persisted embeddings (force full rebuild next time) */
+  async clearStore() {
+    await vectorStore.clear();
+    this.embeddings.clear();
+    this.chunkInfo.clear();
   }
   /**
    * Search using vector similarity — chunk-level → merge to document-level
@@ -971,13 +1194,13 @@ ${chunk.text}`;
     }
     let queryEmbedding;
     const queryHash = hashString(query);
-    const cachedQuery = this.embeddingCache.get(`query:${queryHash}`);
+    const cachedQuery = this.queryCache.get(`q:${queryHash}`);
     if (cachedQuery) {
       queryEmbedding = cachedQuery;
     } else {
       try {
         queryEmbedding = await this.client.embed(query);
-        this.embeddingCache.set(`query:${queryHash}`, queryEmbedding);
+        this.queryCache.set(`q:${queryHash}`, queryEmbedding);
       } catch (error) {
         console.error("[RAG] Failed to embed query:", error);
         return [];
@@ -985,8 +1208,7 @@ ${chunk.text}`;
     }
     const similarities = [];
     for (const [chunkId, embedding] of this.embeddings) {
-      const similarity = this.cosineSimilarity(queryEmbedding, embedding);
-      similarities.push({ chunkId, similarity });
+      similarities.push({ chunkId, similarity: this.cosineSimilarity(queryEmbedding, embedding) });
     }
     similarities.sort((a, b) => b.similarity - a.similarity);
     const docBest = /* @__PURE__ */ new Map();
@@ -996,53 +1218,37 @@ ${chunk.text}`;
         continue;
       const existing = docBest.get(info.docId);
       if (!existing || similarity > existing.similarity) {
-        docBest.set(info.docId, {
-          similarity,
-          title: info.title,
-          path: info.path,
-          scope: info.scope,
-          chunkId
-        });
+        docBest.set(info.docId, { similarity, title: info.title, path: info.path, scope: info.scope });
       }
     }
     const topDocs = [...docBest.entries()].sort((a, b) => b[1].similarity - a[1].similarity).slice(0, options.limit);
     if (!topDocs.length)
       return [];
     const maxScore = topDocs[0][1].similarity;
-    const results = [];
-    for (const [docId, { similarity, title, path, scope }] of topDocs) {
+    return topDocs.map(([docId, { similarity, title, path, scope }]) => {
       const doc = this.documents.get(docId);
-      const snippet = doc?.summary || "";
-      results.push({
+      return {
         docId,
         title,
         path,
         score: similarity / maxScore,
-        snippet: snippet || "",
+        snippet: doc?.summary || "",
         source: "vector"
-      });
-    }
-    return results;
+      };
+    });
   }
-  /**
-   * Vector search with neighbor expansion
-   * Uses document-level results for neighbor discovery.
-   */
   async searchWithExpansion(query, limit = 20, expandTopK = 3, expandNeighbors = 5) {
     const initial = await this.search(query, { limit });
     if (!initial.length || expandTopK <= 0)
       return initial;
     const seenIds = new Set(initial.map((r) => r.docId));
     const expanded = [...initial];
-    const seeds = initial.slice(0, expandTopK);
-    for (const seed of seeds) {
+    for (const seed of initial.slice(0, expandTopK)) {
       const seedDoc = this.documents.get(seed.docId);
       if (!seedDoc)
         continue;
       const seedText = seedDoc.summary || seedDoc.content.substring(0, 300);
-      const neighbors = await this.search(seedText, {
-        limit: expandNeighbors + seenIds.size
-      });
+      const neighbors = await this.search(seedText, { limit: expandNeighbors + seenIds.size });
       for (const n of neighbors) {
         if (!seenIds.has(n.docId)) {
           seenIds.add(n.docId);
@@ -1057,26 +1263,20 @@ ${chunk.text}`;
   cosineSimilarity(a, b) {
     if (a.length !== b.length)
       return 0;
-    let dotProduct = 0, normA = 0, normB = 0;
+    let dot = 0, na = 0, nb = 0;
     for (let i = 0; i < a.length; i++) {
-      dotProduct += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
+      dot += a[i] * b[i];
+      na += a[i] * a[i];
+      nb += b[i] * b[i];
     }
-    const denominator = Math.sqrt(normA) * Math.sqrt(normB);
-    if (denominator === 0)
-      return 0;
-    return dotProduct / denominator;
+    const d = Math.sqrt(na) * Math.sqrt(nb);
+    return d === 0 ? 0 : dot / d;
   }
   getStats() {
-    return {
-      documentCount: this.documents.size,
-      embeddingCount: this.embeddings.size,
-      loaded: this.loaded
-    };
+    return { documentCount: this.documents.size, embeddingCount: this.embeddings.size, loaded: this.loaded };
   }
   sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return new Promise((r) => setTimeout(r, ms));
   }
 };
 
