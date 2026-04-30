@@ -1,9 +1,9 @@
 {
   "id": "obsidian-enhanced-rag",
   "name": "Enhanced RAG",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "minAppVersion": "0.15.0",
-  "description": "Enhanced RAG plugin with triple retrieval fusion and knowledge unit generation",
-  "author": "",
+  "description": "流水线 RAG：BM25 + 向量切片检索 → Wiki Link 拓展 → 索引卡增强排序 → LLM 流式问答。支持独立 Embedding/Rerank 配置、索引卡自动生成与 LLM 语义填充。",
+  "author": "AtlasFold",
   "isDesktopOnly": false
 }
