@@ -427,17 +427,22 @@ export default class EnhancedRAGPlugin extends Plugin {
    * Enrich index cards with LLM semantic fields
    */
   async enrichIndexCards(): Promise<void> {
-    new Notice("正在调用 LLM 填充语义字段...");
+    const notice = new Notice("正在调用 LLM 填充语义字段...", 0);
     try {
       const count = await this.cardGenerator.enrichCards(
         this.settings.apiKey,
         this.settings.apiBaseUrl,
         this.settings.enrichModel,
+        (current, total, stage) => {
+          notice.setMessage(`LLM 填充: ${stage}`);
+        },
       );
-      new Notice(`LLM 填充完成：更新 ${count} 张索引卡`);
+      notice.setMessage(`LLM 填充完成：更新 ${count} 张索引卡`);
+      setTimeout(() => notice.hide(), 5000);
     } catch (error) {
       console.error("[RAG] Card enrichment failed:", error);
-      new Notice(`语义字段填充失败: ${(error as Error).message}`);
+      notice.setMessage(`语义字段填充失败: ${(error as Error).message}`);
+      setTimeout(() => notice.hide(), 8000);
     }
   }
 

@@ -152,7 +152,12 @@ export class CardGenerator {
    * Call LLM to fill topic_secondary, question_types, best_for, not_for, read_with
    * Reads all card files from 00_INDEX/files/, sends metadata to LLM, writes back updated cards.
    */
-  async enrichCards(apiKey: string, apiBaseUrl: string, model: string): Promise<number> {
+  async enrichCards(
+    apiKey: string,
+    apiBaseUrl: string,
+    model: string,
+    onProgress?: (current: number, total: number, stage: string) => void,
+  ): Promise<number> {
     if (!apiKey) {
       console.warn("[RAG] No API key configured, skipping card enrichment");
       return 0;
@@ -161,12 +166,16 @@ export class CardGenerator {
     const cardFiles = this.getCardFiles();
     if (cardFiles.length === 0) return 0;
 
+    const total = cardFiles.length;
     const baseUrl = apiBaseUrl.replace(/\/$/, "");
     const batchSize = 5;
     let count = 0;
 
+    onProgress?.(0, total, "开始读取索引卡...");
+
     for (let i = 0; i < cardFiles.length; i += batchSize) {
       const batch = cardFiles.slice(i, i + batchSize);
+      onProgress?.(i, total, `正在读取卡片 (${i + 1}-${Math.min(i + batchSize, total)}/${total})`);
       try {
         const cardsData: Array<Record<string, unknown>> = [];
         for (const file of batch) {
@@ -185,6 +194,7 @@ export class CardGenerator {
           });
         }
 
+        onProgress?.(i, total, `正在调用 LLM (${i + 1}-${Math.min(i + batchSize, total)}/${total})`);
         const userMsg = cardsData.map(d => JSON.stringify(d)).join("\n");
         const resp = await fetch(`${baseUrl}/chat/completions`, {
           method: "POST",
@@ -253,11 +263,14 @@ export class CardGenerator {
           await this.vault.modify(file, newCard);
           count++;
         }
+        onProgress?.(Math.min(i + batchSize, total), total, `已完成 ${count}/${total} 张卡片`);
       } catch (e) {
         console.warn(`[RAG] Enrich batch error:`, e);
+        onProgress?.(i, total, `批次失败: ${String(e).substring(0, 50)}`);
       }
     }
 
+    onProgress?.(total, total, `完成！共更新 ${count} 张卡片`);
     if (count) {
       console.log(`[RAG] LLM enriched ${count} index cards`);
     }

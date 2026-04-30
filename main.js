@@ -2344,7 +2344,7 @@ var CardGenerator = class {
    * Call LLM to fill topic_secondary, question_types, best_for, not_for, read_with
    * Reads all card files from 00_INDEX/files/, sends metadata to LLM, writes back updated cards.
    */
-  async enrichCards(apiKey, apiBaseUrl, model) {
+  async enrichCards(apiKey, apiBaseUrl, model, onProgress) {
     if (!apiKey) {
       console.warn("[RAG] No API key configured, skipping card enrichment");
       return 0;
@@ -2352,11 +2352,14 @@ var CardGenerator = class {
     const cardFiles = this.getCardFiles();
     if (cardFiles.length === 0)
       return 0;
+    const total = cardFiles.length;
     const baseUrl = apiBaseUrl.replace(/\/$/, "");
     const batchSize = 5;
     let count = 0;
+    onProgress?.(0, total, "\u5F00\u59CB\u8BFB\u53D6\u7D22\u5F15\u5361...");
     for (let i = 0; i < cardFiles.length; i += batchSize) {
       const batch = cardFiles.slice(i, i + batchSize);
+      onProgress?.(i, total, `\u6B63\u5728\u8BFB\u53D6\u5361\u7247 (${i + 1}-${Math.min(i + batchSize, total)}/${total})`);
       try {
         const cardsData = [];
         for (const file of batch) {
@@ -2374,6 +2377,7 @@ var CardGenerator = class {
             tags: this.parseYamlList(fm.tags).slice(0, 5)
           });
         }
+        onProgress?.(i, total, `\u6B63\u5728\u8C03\u7528 LLM (${i + 1}-${Math.min(i + batchSize, total)}/${total})`);
         const userMsg = cardsData.map((d) => JSON.stringify(d)).join("\n");
         const resp = await fetch(`${baseUrl}/chat/completions`, {
           method: "POST",
@@ -2435,10 +2439,13 @@ var CardGenerator = class {
           await this.vault.modify(file, newCard);
           count++;
         }
+        onProgress?.(Math.min(i + batchSize, total), total, `\u5DF2\u5B8C\u6210 ${count}/${total} \u5F20\u5361\u7247`);
       } catch (e) {
         console.warn(`[RAG] Enrich batch error:`, e);
+        onProgress?.(i, total, `\u6279\u6B21\u5931\u8D25: ${String(e).substring(0, 50)}`);
       }
     }
+    onProgress?.(total, total, `\u5B8C\u6210\uFF01\u5171\u66F4\u65B0 ${count} \u5F20\u5361\u7247`);
     if (count) {
       console.log(`[RAG] LLM enriched ${count} index cards`);
     }
@@ -3342,17 +3349,22 @@ var EnhancedRAGPlugin = class extends import_obsidian7.Plugin {
    * Enrich index cards with LLM semantic fields
    */
   async enrichIndexCards() {
-    new import_obsidian7.Notice("\u6B63\u5728\u8C03\u7528 LLM \u586B\u5145\u8BED\u4E49\u5B57\u6BB5...");
+    const notice = new import_obsidian7.Notice("\u6B63\u5728\u8C03\u7528 LLM \u586B\u5145\u8BED\u4E49\u5B57\u6BB5...", 0);
     try {
       const count = await this.cardGenerator.enrichCards(
         this.settings.apiKey,
         this.settings.apiBaseUrl,
-        this.settings.enrichModel
+        this.settings.enrichModel,
+        (current, total, stage) => {
+          notice.setMessage(`LLM \u586B\u5145: ${stage}`);
+        }
       );
-      new import_obsidian7.Notice(`LLM \u586B\u5145\u5B8C\u6210\uFF1A\u66F4\u65B0 ${count} \u5F20\u7D22\u5F15\u5361`);
+      notice.setMessage(`LLM \u586B\u5145\u5B8C\u6210\uFF1A\u66F4\u65B0 ${count} \u5F20\u7D22\u5F15\u5361`);
+      setTimeout(() => notice.hide(), 5e3);
     } catch (error) {
       console.error("[RAG] Card enrichment failed:", error);
-      new import_obsidian7.Notice(`\u8BED\u4E49\u5B57\u6BB5\u586B\u5145\u5931\u8D25: ${error.message}`);
+      notice.setMessage(`\u8BED\u4E49\u5B57\u6BB5\u586B\u5145\u5931\u8D25: ${error.message}`);
+      setTimeout(() => notice.hide(), 8e3);
     }
   }
   /**
