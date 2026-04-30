@@ -23,18 +23,18 @@ async function sha1(text: string): Promise<string> {
  *   oneLineSummary, retrievalKeywords, bestFor, notFor, readWith,
  *   sourceHash, buildStatus, generatedAt, content
  */
-const ENRICH_SYSTEM_PROMPT = `你是知识库索引专家。根据文档卡片信息，补充 5 个语义字段。只输出合法 JSON，不要其他内容。
+const ENRICH_SYSTEM_PROMPT = `你是知识库索引专家。你会收到一批文档卡片（JSON 数组），为每一张卡片补充语义字段。
 
-字段说明：
+对每张卡片输出 5 个字段：
 - topic_secondary: 涉及但非核心的其他主题，0-3 个
-- question_types: 适用问题类型，从枚举选择 1-4 个
-  枚举：definition(定义), explanation(原理解释), comparison(对比), procedure(步骤流程), reference(公式数据参考), troubleshooting(问题排查)
-- best_for: 什么场景优先推荐这篇，1-3 个
-- not_for: 什么场景不推荐这篇，0-2 个
-- read_with: 建议一起阅读的文件名，0-3 个（只写文件名，不含路径和 .md 后缀）
+- question_types: 适用问题类型 1-4 个，从枚举选：definition(定义)/explanation(原理解释)/comparison(对比)/procedure(步骤流程)/reference(公式数据参考)/troubleshooting(问题排查)
+- best_for: 什么场景优先推荐这篇，1-3 个（如"入门学习"、"公式速查"、"考前复习"）
+- not_for: 什么场景不推荐这篇，0-2 个（如"动手实验"、"最新进展"）
+- read_with: 建议一起阅读的文件名，0-3 个（只写文件名不含路径和.md后缀）
 
-输出格式：
-{"topic_secondary":["次主题"],"question_types":["definition"],"best_for":["场景"],"not_for":[],"read_with":["文件名"]}`;
+必须以 JSON 数组格式返回，每个元素对应一张输入卡片的语义字段。不要 Markdown 代码块包裹，直接输出纯 JSON 数组：
+
+[{"topic_secondary":["次主题"],"question_types":["definition"],"best_for":["入门学习"],"not_for":[],"read_with":["能带理论"]}]`;
 
 export class CardGenerator {
   private vault: Vault;
@@ -210,20 +210,34 @@ export class CardGenerator {
             ],
             max_tokens: 2000,
             temperature: 0.1,
-            response_format: { type: "json_object" },
           }),
         });
 
         if (!resp.ok) {
-          console.warn(`[RAG] Enrich batch failed: HTTP ${resp.status}`);
+          const errText = await resp.text();
+          console.warn(`[RAG] Enrich batch failed: HTTP ${resp.status} — ${errText.substring(0, 200)}`);
           continue;
         }
 
         const data = await resp.json();
-        const content = data.choices?.[0]?.message?.content;
-        if (!content) continue;
+        const rawContent = data.choices?.[0]?.message?.content;
+        if (!rawContent) continue;
 
-        const results = JSON.parse(content);
+        // Extract JSON from possible markdown code block
+        let jsonStr = rawContent.trim();
+        const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (codeBlockMatch) {
+          jsonStr = codeBlockMatch[1].trim();
+        }
+
+        let results: unknown;
+        try {
+          results = JSON.parse(jsonStr);
+        } catch (parseErr) {
+          console.warn(`[RAG] Enrich JSON parse failed, raw: ${jsonStr.substring(0, 300)}`);
+          continue;
+        }
+
         const items: Array<Record<string, unknown>> = Array.isArray(results) ? results : [results];
 
         for (let j = 0; j < items.length && j < batch.length; j++) {
@@ -371,6 +385,8 @@ export class CardGenerator {
     let match;
     while ((match = regex.exec(content)) !== null) {
       const link = match[1].trim();
+      // Skip non-markdown files (images, PDFs, etc.)
+      if (link.match(/\.(png|jpg|jpeg|gif|svg|webp|pdf|mp4|mp3|zip|rar)$/i)) continue;
       const lower = link.toLowerCase();
       if (!seen.has(lower)) {
         seen.add(lower);
@@ -382,13 +398,13 @@ export class CardGenerator {
 
   private extractTags(content: string, fm: Record<string, string>): string[] {
     const tags: string[] = [];
-    if (fm.tags) {
+    if (fm.tags && fm.tags !== "[]") {
       const tagList = fm.tags.split("\n").length > 1
         ? fm.tags.split("\n")
         : fm.tags.split(",");
       for (const t of tagList) {
         const clean = t.trim().replace(/^["']|["']$/g, "").replace(/^-\s+/, "");
-        if (clean) tags.push(clean);
+        if (clean && clean !== "[]") tags.push(clean);
       }
     }
     const inlineRegex = /(?:^|\s)#([一-鿿\w]{2,})/g;
