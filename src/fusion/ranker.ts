@@ -1,10 +1,10 @@
-import { SearchResult, RankedArticle, IndexCard } from "../types";
+import { SearchResult, RankedArticle, IndexCard, QueryType } from "../types";
 
 /**
  * Two-step ranking for pipeline retrieval
  *
  * Step 1: rankArticles — BM25 + vector weighted fusion + expansion boost
- * Step 2: boostByCardFields — index card field matching bonus
+ * Step 2: boostByCardFields — index card field matching + question_types matching
  */
 
 function normalizeScores(results: SearchResult[]): Map<string, number> {
@@ -72,6 +72,7 @@ export function boostByCardFields(
   ranked: RankedArticle[],
   query: string,
   cards: Map<string, IndexCard>,
+  queryType?: QueryType,
 ): RankedArticle[] {
   const queryLower = query.toLowerCase();
   const queryTokens = new Set(queryLower.split(/\s+/));
@@ -104,12 +105,20 @@ export function boostByCardFields(
       bonus += 0.08;
     }
 
+    // question_types match (query type detected → card's question_types alignment)
+    if (queryType && card.questionTypes?.length) {
+      const qtLower = card.questionTypes.map(q => q.toLowerCase());
+      if (qtLower.includes(queryType.toLowerCase())) {
+        bonus += 0.10;
+      }
+    }
+
     // domain match
     if (card.domain) {
       bonus += 0.03;
     }
 
-    article.cardBonus = Math.min(bonus, 0.25);
+    article.cardBonus = Math.min(bonus, 0.30);
     article.finalScore += article.cardBonus;
     article.card = card;
   }

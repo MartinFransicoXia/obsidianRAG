@@ -32,9 +32,26 @@ function buildPipelinePrompt(
   query: string,
   ranked: RankedArticle[],
   cards: Map<string, IndexCard>,
-  contentMap?: Map<string, string>
+  contentMap?: Map<string, string>,
+  knowledgeUnits?: KnowledgeUnit[]
 ): string {
-  let prompt = `## 用户问题\n${query}\n\n## 相关笔记\n\n`;
+  let prompt = `## 用户问题\n${query}\n\n`;
+
+  // Include knowledge units if available
+  if (knowledgeUnits?.length) {
+    prompt += `## 知识单元整理\n`;
+    for (let i = 0; i < Math.min(knowledgeUnits.length, 5); i++) {
+      const ku = knowledgeUnits[i];
+      prompt += `### ${ku.topic}\n${ku.summary}\n`;
+      if (ku.keyPoints?.length) {
+        prompt += ku.keyPoints.map(p => `- ${p}`).join("\n") + "\n";
+      }
+      prompt += "\n";
+    }
+    prompt += "---\n\n";
+  }
+
+  prompt += `## 相关笔记\n\n`;
   for (let i = 0; i < Math.min(ranked.length, 10); i++) {
     const r = ranked[i];
     const tag = r.fromExpansion ? " [拓展]" : "";
@@ -88,6 +105,9 @@ export default class EnhancedRAGPlugin extends Plugin {
     this.historyManager = new HistoryManager(this.app, pluginDir, this.settings.historyRetentionDays);
     this.cloudCache = new CloudCache(this.settings.cacheSize);
     this.cardGenerator = new CardGenerator(this.app.vault);
+
+    // Wire knowledge generator into retrieval manager
+    this.retrievalManager.setKnowledgeGenerator(this.knowledgeGenerator);
 
     // Register views
     this.registerView(VIEW_TYPE_RAG, (leaf) => {
@@ -252,8 +272,27 @@ export default class EnhancedRAGPlugin extends Plugin {
       }
     }
 
+    // ── Generate knowledge units (cluster + merge by topic) ──
+    let knowledgeUnits: KnowledgeUnit[] = [];
+    if (this.settings.showKnowledgeUnits) {
+      try {
+        const fusedResults = boosted.map(r => ({
+          docId: r.docId,
+          title: r.title,
+          path: r.path,
+          finalScore: r.finalScore,
+          scoreBreakdown: { keywordScore: 0, indexScore: 0, vectorScore: 0 },
+          snippet: r.snippet,
+        }));
+        const history = this.historyManager.getHistory();
+        knowledgeUnits = await this.knowledgeGenerator.generate(fusedResults, query, history);
+      } catch (e) {
+        console.warn("[RAG] Knowledge unit generation failed:", e);
+      }
+    }
+
     // Build prompt
-    const userPrompt = buildPipelinePrompt(query, boosted, cards, contentMap);
+    const userPrompt = buildPipelinePrompt(query, boosted, cards, contentMap, knowledgeUnits);
 
     // Stream from API
     const url = `${this.settings.apiBaseUrl}/chat/completions`;

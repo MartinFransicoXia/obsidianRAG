@@ -1120,7 +1120,7 @@ function rankArticles(keywordResults, vectorResults, expansionPaths) {
   ranked.sort((a, b) => b.finalScore - a.finalScore);
   return ranked;
 }
-function boostByCardFields(ranked, query, cards) {
+function boostByCardFields(ranked, query, cards, queryType) {
   const queryLower = query.toLowerCase();
   const queryTokens = new Set(queryLower.split(/\s+/));
   for (const article of ranked) {
@@ -1146,119 +1146,22 @@ function boostByCardFields(ranked, query, cards) {
     if (topic && (queryLower.includes(topic.toLowerCase()) || topic.toLowerCase().includes(queryLower))) {
       bonus += 0.08;
     }
+    if (queryType && card.questionTypes?.length) {
+      const qtLower = card.questionTypes.map((q) => q.toLowerCase());
+      if (qtLower.includes(queryType.toLowerCase())) {
+        bonus += 0.1;
+      }
+    }
     if (card.domain) {
       bonus += 0.03;
     }
-    article.cardBonus = Math.min(bonus, 0.25);
+    article.cardBonus = Math.min(bonus, 0.3);
     article.finalScore += article.cardBonus;
     article.card = card;
   }
   ranked.sort((a, b) => b.finalScore - a.finalScore);
   return ranked;
 }
-
-// src/retrieval/manager.ts
-var RetrievalManager = class {
-  constructor(vault, settings) {
-    this.vault = vault;
-    this.settings = settings;
-    this.keywordRetriever = new KeywordRetriever(vault);
-    this.cardStore = new IndexCardStore(vault);
-    this.vectorRetriever = new VectorRetriever(vault, settings);
-  }
-  updateSettings(settings) {
-    this.settings = settings;
-    this.vectorRetriever.updateSettings(settings);
-  }
-  /**
-   * Build all indexes (keyword + cards + vector)
-   */
-  async buildIndexes() {
-    console.log("[RAG] Building all indexes...");
-    await Promise.all([
-      this.keywordRetriever.buildIndex(),
-      this.cardStore.loadIndex(),
-      this.vectorRetriever.buildIndex()
-    ]);
-    console.log("[RAG] All indexes built");
-  }
-  /**
-   * Pipeline search: core retrieval → expansion → on-demand cards → ranking
-   */
-  async pipelineSearch(query, limit = 10) {
-    const [kwResults, vecResults] = await Promise.all([
-      this.keywordRetriever.search(query, { limit: 50 }),
-      this.settings.apiKey ? this.vectorRetriever.searchWithExpansion(query, 20, 3, 5) : Promise.resolve([])
-    ]);
-    const coreSet = /* @__PURE__ */ new Set();
-    for (const r of kwResults.slice(0, 20))
-      coreSet.add(r.docId);
-    for (const r of vecResults.slice(0, 20))
-      coreSet.add(r.docId);
-    const corePaths = [...coreSet];
-    const expansionPaths = [];
-    for (const path of corePaths) {
-      const linked = this.cardStore.getLinkedPaths(path);
-      for (const lp of linked) {
-        if (!coreSet.has(lp)) {
-          expansionPaths.push(lp);
-        }
-      }
-    }
-    const allCandidatePaths = [...corePaths, ...expansionPaths];
-    const cards = this.cardStore.getCardsByPaths(allCandidatePaths);
-    let ranked = rankArticles(kwResults, vecResults, expansionPaths);
-    ranked = boostByCardFields(ranked, query, cards);
-    console.log(
-      `[RAG] Pipeline: keyword=${kwResults.length}, vector=${vecResults.length}, expansion=${expansionPaths.length}, ranked=${ranked.length}`
-    );
-    return { ranked: ranked.slice(0, limit), cards };
-  }
-  /**
-   * Update a single document in keyword index
-   */
-  async updateDocument(filePath) {
-    await this.keywordRetriever.updateDocument(filePath);
-  }
-  /**
-   * Remove a document from keyword index
-   */
-  removeDocument(filePath) {
-    this.keywordRetriever.removeDocument(filePath);
-  }
-  /**
-   * Get statistics for all retrievers
-   */
-  getStats() {
-    return {
-      keyword: this.keywordRetriever.getStats(),
-      cards: this.cardStore.getStats(),
-      vector: this.vectorRetriever.getStats()
-    };
-  }
-};
-
-// src/fusion/result-fusion.ts
-var ResultFusion = class {
-  /**
-   * Apply history boost to ranked results
-   */
-  applyHistoryBoost(results, topicPreferences) {
-    return results.map((result) => {
-      let boost = 0;
-      const titleLower = result.title.toLowerCase();
-      for (const [topic, preference] of Object.entries(topicPreferences)) {
-        if (titleLower.includes(topic.toLowerCase())) {
-          boost += preference * 0.3;
-        }
-      }
-      return {
-        ...result,
-        finalScore: result.finalScore + boost
-      };
-    }).sort((a, b) => b.finalScore - a.finalScore);
-  }
-};
 
 // src/fusion/query-analyzer.ts
 var QueryAnalyzer = class {
@@ -1310,6 +1213,25 @@ var QueryAnalyzer = class {
         /综述/,
         /简述/,
         /概括/
+      ],
+      reference: [
+        /公式/,
+        /数据/,
+        /参数/,
+        /参考/,
+        /查询/,
+        /值是多少/,
+        /多少/
+      ],
+      troubleshooting: [
+        /报错/,
+        /出错/,
+        /error/i,
+        /失败/,
+        /问题排查/,
+        /排查/,
+        /故障/,
+        /bug/i
       ]
     };
   }
@@ -1340,6 +1262,117 @@ var QueryAnalyzer = class {
       }
     }
     return detectedType;
+  }
+};
+
+// src/retrieval/manager.ts
+var RetrievalManager = class {
+  // Lazy-injected from main.ts
+  constructor(vault, settings) {
+    this.knowledgeGenerator = null;
+    this.vault = vault;
+    this.settings = settings;
+    this.keywordRetriever = new KeywordRetriever(vault);
+    this.cardStore = new IndexCardStore(vault);
+    this.vectorRetriever = new VectorRetriever(vault, settings);
+    this.queryAnalyzer = new QueryAnalyzer();
+  }
+  updateSettings(settings) {
+    this.settings = settings;
+    this.vectorRetriever.updateSettings(settings);
+  }
+  /** Inject knowledge generator (circular dependency avoidance) */
+  setKnowledgeGenerator(generator) {
+    this.knowledgeGenerator = generator;
+  }
+  /**
+   * Build all indexes (keyword + cards + vector)
+   */
+  async buildIndexes() {
+    console.log("[RAG] Building all indexes...");
+    await Promise.all([
+      this.keywordRetriever.buildIndex(),
+      this.cardStore.loadIndex(),
+      this.vectorRetriever.buildIndex()
+    ]);
+    console.log("[RAG] All indexes built");
+  }
+  /**
+   * Pipeline search: query analysis → retrieval → expansion → ranking → knowledge units
+   */
+  async pipelineSearch(query, limit = 10) {
+    const queryType = this.queryAnalyzer.detect(query);
+    const [kwResults, vecResults] = await Promise.all([
+      this.keywordRetriever.search(query, { limit: 50 }),
+      this.settings.apiKey ? this.vectorRetriever.searchWithExpansion(query, 20, 3, 5) : Promise.resolve([])
+    ]);
+    const coreSet = /* @__PURE__ */ new Set();
+    for (const r of kwResults.slice(0, 20))
+      coreSet.add(r.docId);
+    for (const r of vecResults.slice(0, 20))
+      coreSet.add(r.docId);
+    const corePaths = [...coreSet];
+    const expansionPaths = [];
+    for (const path of corePaths) {
+      const linked = this.cardStore.getLinkedPaths(path);
+      for (const lp of linked) {
+        if (!coreSet.has(lp)) {
+          expansionPaths.push(lp);
+        }
+      }
+    }
+    const allCandidatePaths = [...corePaths, ...expansionPaths];
+    const cards = this.cardStore.getCardsByPaths(allCandidatePaths);
+    let ranked = rankArticles(kwResults, vecResults, expansionPaths);
+    ranked = boostByCardFields(ranked, query, cards, queryType);
+    console.log(
+      `[RAG] Pipeline: queryType=${queryType}, keyword=${kwResults.length}, vector=${vecResults.length}, expansion=${expansionPaths.length}, ranked=${ranked.length}`
+    );
+    return { ranked: ranked.slice(0, limit), cards };
+  }
+  /**
+   * Update a single document in keyword index
+   */
+  async updateDocument(filePath) {
+    await this.keywordRetriever.updateDocument(filePath);
+  }
+  /**
+   * Remove a document from keyword index
+   */
+  removeDocument(filePath) {
+    this.keywordRetriever.removeDocument(filePath);
+  }
+  /**
+   * Get statistics for all retrievers
+   */
+  getStats() {
+    return {
+      keyword: this.keywordRetriever.getStats(),
+      cards: this.cardStore.getStats(),
+      vector: this.vectorRetriever.getStats()
+    };
+  }
+};
+
+// src/fusion/result-fusion.ts
+var ResultFusion = class {
+  /**
+   * Apply history boost to ranked results
+   */
+  applyHistoryBoost(results, topicPreferences) {
+    return results.map((result) => {
+      let boost = 0;
+      const titleLower = result.title.toLowerCase();
+      for (const [topic, preference] of Object.entries(topicPreferences)) {
+        if (titleLower.includes(topic.toLowerCase())) {
+          boost += preference * 0.3;
+        }
+      }
+      return {
+        ...result,
+        finalScore: result.finalScore + boost
+      };
+    }).sort((a, b) => b.finalScore - a.finalScore);
   }
 };
 
@@ -2984,11 +3017,27 @@ var CHAT_SYSTEM_PROMPT = `\u4F60\u662F\u4E00\u4E2A\u57FA\u4E8E\u7528\u6237\u7B14
 
 ## \u8F93\u51FA\u683C\u5F0F
 \u7528 markdown \u683C\u5F0F\u8F93\u51FA\uFF0C\u7ED3\u6784\u6E05\u6670\u3002`;
-function buildPipelinePrompt(query, ranked, cards, contentMap) {
+function buildPipelinePrompt(query, ranked, cards, contentMap, knowledgeUnits) {
   let prompt = `## \u7528\u6237\u95EE\u9898
 ${query}
 
-## \u76F8\u5173\u7B14\u8BB0
+`;
+  if (knowledgeUnits?.length) {
+    prompt += `## \u77E5\u8BC6\u5355\u5143\u6574\u7406
+`;
+    for (let i = 0; i < Math.min(knowledgeUnits.length, 5); i++) {
+      const ku = knowledgeUnits[i];
+      prompt += `### ${ku.topic}
+${ku.summary}
+`;
+      if (ku.keyPoints?.length) {
+        prompt += ku.keyPoints.map((p) => `- ${p}`).join("\n") + "\n";
+      }
+      prompt += "\n";
+    }
+    prompt += "---\n\n";
+  }
+  prompt += `## \u76F8\u5173\u7B14\u8BB0
 
 `;
   for (let i = 0; i < Math.min(ranked.length, 10); i++) {
@@ -3035,6 +3084,7 @@ var EnhancedRAGPlugin = class extends import_obsidian7.Plugin {
     this.historyManager = new HistoryManager(this.app, pluginDir, this.settings.historyRetentionDays);
     this.cloudCache = new CloudCache(this.settings.cacheSize);
     this.cardGenerator = new CardGenerator(this.app.vault);
+    this.retrievalManager.setKnowledgeGenerator(this.knowledgeGenerator);
     this.registerView(VIEW_TYPE_RAG, (leaf) => {
       this.mainView = new MainRAGView(leaf);
       this.setupMainViewCallbacks();
@@ -3158,7 +3208,24 @@ var EnhancedRAGPlugin = class extends import_obsidian7.Plugin {
         }
       }
     }
-    const userPrompt = buildPipelinePrompt(query, boosted, cards, contentMap);
+    let knowledgeUnits = [];
+    if (this.settings.showKnowledgeUnits) {
+      try {
+        const fusedResults = boosted.map((r) => ({
+          docId: r.docId,
+          title: r.title,
+          path: r.path,
+          finalScore: r.finalScore,
+          scoreBreakdown: { keywordScore: 0, indexScore: 0, vectorScore: 0 },
+          snippet: r.snippet
+        }));
+        const history = this.historyManager.getHistory();
+        knowledgeUnits = await this.knowledgeGenerator.generate(fusedResults, query, history);
+      } catch (e) {
+        console.warn("[RAG] Knowledge unit generation failed:", e);
+      }
+    }
+    const userPrompt = buildPipelinePrompt(query, boosted, cards, contentMap, knowledgeUnits);
     const url = `${this.settings.apiBaseUrl}/chat/completions`;
     const resp = await fetch(url, {
       method: "POST",

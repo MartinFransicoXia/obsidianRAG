@@ -65,7 +65,9 @@ export enum QueryType {
   PROCEDURE = "procedure",
   COMPARISON = "comparison",
   EXPLANATION = "explanation",
-  SUMMARIZATION = "summarization"
+  SUMMARIZATION = "summarization",
+  REFERENCE = "reference",
+  TROUBLESHOOTING = "troubleshooting"
 }
 
 // ============================================

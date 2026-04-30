@@ -51,6 +51,25 @@ export class QueryAnalyzer {
       /综述/,
       /简述/,
       /概括/
+    ],
+    reference: [
+      /公式/,
+      /数据/,
+      /参数/,
+      /参考/,
+      /查询/,
+      /值是多少/,
+      /多少/
+    ],
+    troubleshooting: [
+      /报错/,
+      /出错/,
+      /error/i,
+      /失败/,
+      /问题排查/,
+      /排查/,
+      /故障/,
+      /bug/i
     ]
   };
 
