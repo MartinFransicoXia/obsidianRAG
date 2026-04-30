@@ -1,7 +1,7 @@
 {
   "name": "obsidian-enhanced-rag",
-  "version": "1.0.0",
-  "description": "Enhanced RAG plugin for Obsidian with triple retrieval fusion and knowledge unit generation",
+  "version": "1.1.0",
+  "description": "Pipeline RAG: BM25 + vector chunk retrieval, Wiki Link expansion, index card boosted ranking, LLM streaming Q&A",
   "main": "main.js",
   "scripts": {
     "build": "node esbuild.config.mjs production",
@@ -16,7 +16,7 @@
     "retrieval",
     "knowledge-management"
   ],
-  "author": "",
+  "author": "AtlasFold",
   "license": "MIT",
   "devDependencies": {
     "@esbuild/win32-x64": "^0.28.0",

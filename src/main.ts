@@ -78,7 +78,7 @@ function buildPipelinePrompt(
 
 /**
  * Enhanced RAG Plugin for Obsidian
- * Provides triple retrieval fusion with knowledge unit generation
+ * Pipeline: BM25 + vector chunk retrieval → Wiki Link expansion → index card boosted ranking → LLM streaming Q&A
  */
 export default class EnhancedRAGPlugin extends Plugin {
   settings: PluginSettings = { ...DEFAULT_SETTINGS };
