@@ -5600,24 +5600,10 @@ ${ku.summary}
     prompt += `### [${i + 1}] ${r.title}${tag}
 \u8DEF\u5F84\uFF1A\`${r.path}\`
 `;
-    if (r.fromExpansion) {
-      const card = cards.get(r.docId) || r.card;
-      if (card) {
-        const summary = card.oneLineSummary;
-        if (summary)
-          prompt += `\u6458\u8981\uFF1A${summary.substring(0, 200)}
+    const content = contentMap?.get(r.docId) || r.snippet;
+    if (content)
+      prompt += `\u5185\u5BB9\uFF1A${content}
 `;
-        const kw = card.retrievalKeywords;
-        if (kw?.length)
-          prompt += `\u5173\u952E\u8BCD\uFF1A${kw.slice(0, 5).join(", ")}
-`;
-      }
-    } else {
-      const content = contentMap?.get(r.docId) || r.snippet;
-      if (content)
-        prompt += `\u5185\u5BB9\uFF1A${content.substring(0, 600)}
-`;
-    }
     prompt += "\n";
   }
   return prompt;
@@ -5751,14 +5737,12 @@ var EnhancedRAGPlugin = class extends import_obsidian7.Plugin {
     }
     const contentMap = /* @__PURE__ */ new Map();
     for (const article of boosted) {
-      if (!article.fromExpansion) {
-        const file = this.app.vault.getAbstractFileByPath(article.path);
-        if (file && "stat" in file) {
-          try {
-            const content = await this.app.vault.cachedRead(file);
-            contentMap.set(article.docId, content);
-          } catch {
-          }
+      const file = this.app.vault.getAbstractFileByPath(article.path);
+      if (file && "stat" in file) {
+        try {
+          const content = await this.app.vault.cachedRead(file);
+          contentMap.set(article.docId, content);
+        } catch {
         }
       }
     }

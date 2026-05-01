@@ -57,20 +57,9 @@ function buildPipelinePrompt(
     const tag = r.fromExpansion ? " [拓展]" : "";
     prompt += `### [${i + 1}] ${r.title}${tag}\n路径：\`${r.path}\`\n`;
 
-    if (r.fromExpansion) {
-      // Expansion articles: use card summary + keywords
-      const card = cards.get(r.docId) || r.card;
-      if (card) {
-        const summary = card.oneLineSummary;
-        if (summary) prompt += `摘要：${summary.substring(0, 200)}\n`;
-        const kw = card.retrievalKeywords;
-        if (kw?.length) prompt += `关键词：${kw.slice(0, 5).join(", ")}\n`;
-      }
-    } else {
-      // Core articles: use full content (truncated)
-      const content = contentMap?.get(r.docId) || r.snippet;
-      if (content) prompt += `内容：${content.substring(0, 600)}\n`;
-    }
+    // Full content for all articles (atomic notes are small)
+    const content = contentMap?.get(r.docId) || r.snippet;
+    if (content) prompt += `内容：${content}\n`;
     prompt += "\n";
   }
   return prompt;
@@ -256,18 +245,16 @@ export default class EnhancedRAGPlugin extends Plugin {
       return { answer: "⚠️ 未找到相关笔记，请尝试不同的关键词。", sources: [] };
     }
 
-    // Build content map for core articles (read full content from vault)
+    // Build content map — full content for all articles (atomic notes are small)
     const contentMap = new Map<string, string>();
     for (const article of boosted) {
-      if (!article.fromExpansion) {
-        const file = this.app.vault.getAbstractFileByPath(article.path);
-        if (file && "stat" in file) {
-          try {
-            const content = await this.app.vault.cachedRead(file as import("obsidian").TFile);
-            contentMap.set(article.docId, content);
-          } catch {
-            // use snippet as fallback
-          }
+      const file = this.app.vault.getAbstractFileByPath(article.path);
+      if (file && "stat" in file) {
+        try {
+          const content = await this.app.vault.cachedRead(file as import("obsidian").TFile);
+          contentMap.set(article.docId, content);
+        } catch {
+          // use snippet as fallback
         }
       }
     }
