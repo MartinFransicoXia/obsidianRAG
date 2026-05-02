@@ -2624,10 +2624,13 @@ function parseCardFrontmatter(content) {
 function parseYamlList(raw) {
   if (!raw)
     return [];
-  if (raw.includes("\n")) {
-    return raw.split("\n").filter((l) => l.trim()).map((l) => l.trim().replace(/^["']|["']$/g, ""));
+  const clean = raw.trim().replace(/^\[|\]$/g, "");
+  if (!clean)
+    return [];
+  if (clean.includes("\n")) {
+    return clean.split("\n").filter((l) => l.trim()).map((l) => l.trim().replace(/^["']|["']$/g, ""));
   }
-  return raw.split(",").filter((x) => x.trim()).map((x) => x.trim().replace(/^["']|["']$/g, ""));
+  return clean.split(",").filter((x) => x.trim()).map((x) => x.trim().replace(/^["']|["']$/g, ""));
 }
 async function readIndexCard(file, vault) {
   try {
