@@ -76,7 +76,9 @@ export class IndexCardStore {
     const allLinks = [...(card.outlinks || [])];
 
     for (const link of allLinks) {
-      const clean = link.trim().replace(/\.md$/, "").toLowerCase();
+      // Strip [[...]] wrapping if present
+      const raw = link.trim().replace(/^\[\[|\]\]$/g, "");
+      const clean = raw.replace(/\.md$/, "").toLowerCase();
       // Try exact path match
       if (this.allKnownPaths.has(clean)) {
         linked.push(link.trim());

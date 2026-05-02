@@ -2921,7 +2921,8 @@ var IndexCardStore = class {
     const linked = [];
     const allLinks = [...card.outlinks || []];
     for (const link of allLinks) {
-      const clean = link.trim().replace(/\.md$/, "").toLowerCase();
+      const raw = link.trim().replace(/^\[\[|\]\]$/g, "");
+      const clean = raw.replace(/\.md$/, "").toLowerCase();
       if (this.allKnownPaths.has(clean)) {
         linked.push(link.trim());
         continue;
@@ -5261,7 +5262,7 @@ var CardGenerator = class {
     if (data.outlinks.length) {
       lines.push("outlinks:");
       for (const link of data.outlinks.slice(0, 20))
-        lines.push(`  - "${escape(link)}"`);
+        lines.push(`  - "[[${escape(link)}]]"`);
     } else {
       lines.push("outlinks: []");
     }
