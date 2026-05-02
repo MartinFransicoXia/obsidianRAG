@@ -5231,7 +5231,7 @@ var CardGenerator = class {
   }
   // ── Build card file ──────────────────────────────────────
   buildCardFile(data, enriched) {
-    const escape = (s) => s.replace(/"/g, '\\"').replace(/\n/g, " ");
+    const escape = (s) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, " ");
     const lines = [
       `doc_id: "${escape(data.docId)}"`,
       `title: "${escape(data.title)}"`,

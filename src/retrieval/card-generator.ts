@@ -492,7 +492,7 @@ export class CardGenerator {
     bestFor?: string[];
     notFor?: string[];
   }): string {
-    const escape = (s: string) => s.replace(/"/g, '\\"').replace(/\n/g, " ");
+    const escape = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, " ");
     const lines: string[] = [
       `doc_id: "${escape(data.docId)}"`,
       `title: "${escape(data.title)}"`,
