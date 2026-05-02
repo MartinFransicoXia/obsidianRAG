@@ -57,7 +57,7 @@ export class RAGSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Merge Model")
-      .setDesc("用于内容合并的模型")
+      .setDesc("知识单元聚合并用的模型（可共用 Chat Model）")
       .addText(text => text
         .setPlaceholder("deepseek-chat")
         .setValue(this.plugin.settings.mergeModel)
@@ -167,7 +167,7 @@ export class RAGSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("填充模型")
-      .setDesc("用于填充 topic_secondary / question_types / best_for / not_for / read_with 的模型")
+      .setDesc("用于填充 one_line_summary / topic_secondary / question_types / best_for / not_for 的模型")
       .addText(text => text
         .setPlaceholder("deepseek-chat")
         .setValue(this.plugin.settings.enrichModel)
@@ -225,7 +225,7 @@ export class RAGSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("启用查询类型检测")
-      .setDesc("根据查询类型自动调整权重")
+      .setDesc("检测查询类型（定义/步骤/对比等），匹配卡片的 question_types 提升排序")
       .addToggle(toggle => toggle
         .setValue(this.plugin.settings.enableQueryTypeDetection)
         .onChange(async (value) => {
@@ -258,7 +258,7 @@ export class RAGSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("监听端口")
-      .setDesc("本地 API 服务端口号（仅监听 127.0.0.1）")
+      .setDesc("本地 API 服务端口号（监听 0.0.0.0，允 WSL/局域网访问）")
       .addText(text => text
         .setPlaceholder("8765")
         .setValue(String(this.plugin.settings.localServerPort))

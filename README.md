@@ -22,7 +22,7 @@
    │  第一步：BM25×0.55 + 向量×0.45 + 交叉命中加分 + 拓展降权
    │  第二步：索引卡字段加分（关键词/主题/领域匹配，上限 +0.25）
    ▼
-最终结果（核心文章取完整内容，拓展文章取卡片摘要）
+最终结果（全部文章全文回填 LLM，原子化笔记无上下文压力）
 ```
 
 ### 知识单元生成
@@ -47,7 +47,10 @@
    obsidian-enhanced-rag/
    ├── main.js          # 构建产物
    ├── manifest.json    # 插件清单
-   └── styles.css       # 样式文件
+   ├── styles.css       # 样式文件
+   ├── sql-wasm.wasm    # SQLite WASM 引擎
+   └── data/            # 运行时数据（自动生成）
+       └── vectors.db   # 向量切片数据库
    ```
 
 3. 在 Obsidian 设置中启用插件
@@ -79,16 +82,24 @@ npm run lint
 ### Embedding 配置
 - **Embedding Model**：向量化模型，默认 `text-embedding-v4`
 - **Embedding Base URL**：Embedding API 地址（留空则与 API Base URL 相同），如 `https://dashscope.aliyuncs.com/compatible-mode/v1`
+- **Embedding API Key**：Embedding API 密钥（留空则共用 Chat API Key，本地服务可直接留空）
 - **Embedding 维度**：向量维度，默认 1024
 
 ### Rerank 配置
 - **启用 Rerank**：使用 Rerank 模型对检索结果二次排序
 - **Rerank Model**：排序模型，如 `qwen3-rerank` / `gte-rerank-v2`
 - **Rerank Base URL**：Rerank API 地址（留空则与 API Base URL 相同）
+- **Rerank API Key**：Rerank API 密钥（留空则共用 Chat API Key）
+
+### 本地 API 服务
+- **启用本地 API**：启动 HTTP 服务暴露检索接口给 Hermes/OpenClaw 等 Agent
+- **监听端口**：默认 8765，监听 0.0.0.0
+- `POST /search`：流水线检索，返回排序文章 + 索引卡元数据
+- `GET /health`：服务状态
 
 ### 索引卡语义填充
-- **填充模型**：用于生成 topic_secondary / question_types / best_for / not_for / read_with 的 LLM 模型，默认 `deepseek-chat`
-- **LLM 填充语义字段**：手动触发按钮，批量调用 LLM 填充所有索引卡的 5 个语义字段
+- **填充模型**：用于生成 one_line_summary / topic_secondary / question_types / best_for / not_for 的 LLM 模型，默认 `deepseek-chat`
+- **LLM 填充语义字段**：手动触发按钮，批量调用 LLM 填充所有索引卡的语义字段
 
 ### 性能配置
 - **缓存大小**：LRU 缓存最大条目数，默认 100
@@ -120,27 +131,19 @@ path: "path/to/file.md"
 scope: "mainline"
 domain: "领域"
 topic_primary: "主要主题"
-one_line_summary: "一句话总结"
+one_line_summary: "一句话总结（80-150字，LLM 生成）"
 note_role: "concept"
 source_hash: "a1b2c3d4..."
 build_status: "success"
 generated_at: "2026-04-28T12:00:00+00:00"
-tags:
-  - "标签1"
-  - "标签2"
-headings:
-  - "标题1"
-  - "标题2"
-retrieval_keywords:
-  - "关键词1"
-  - "关键词2"
-outlinks:
-  - "关联文档1"
-topic_secondary: []
-question_types: []
-best_for: []
+tags: ["标签1", "标签2"]
+headings: ["标题1", "标题2"]
+retrieval_keywords: ["关键词1", "关键词2"]
+outlinks: ["[[关联文档1]]", "[[关联文档2]]"]
+topic_secondary: ["次主题"]
+question_types: ["definition", "explanation"]
+best_for: ["入门学习"]
 not_for: []
-read_with: []
 ---
 
 # 文档标题
@@ -148,13 +151,13 @@ read_with: []
 一句话总结内容
 ```
 
-### 统一字段说明（19 字段）
+### 统一字段说明
 
 | 分组 | 字段 | 说明 |
 |------|------|------|
 | 身份标识 | `doc_id`, `title`, `path`, `scope` | 文档基本标识 |
 | 结构特征 | `tags`, `headings`, `outlinks` | 标签、大纲、Wiki Link |
-| 语义分类 | `domain`, `topic_primary`, `note_role`, `retrieval_keywords` 等 | 领域/主题/类型/关键词 |
+| 语义分类 | `domain`, `topic_primary`, `topic_secondary`, `note_role`, `question_types`, `one_line_summary`, `retrieval_keywords`, `best_for`, `not_for` | 领域/主题/类型/关键词 |
 | 构建元数据 | `source_hash`, `build_status`, `generated_at` | 哈希增量 + 构建状态 |
 | 上下文 | `content` | 原始内容截断 |
 

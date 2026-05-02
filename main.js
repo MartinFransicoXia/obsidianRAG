@@ -2445,7 +2445,7 @@ var RAGSettingTab = class extends import_obsidian.PluginSettingTab {
       this.plugin.settings.chatModel = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("Merge Model").setDesc("\u7528\u4E8E\u5185\u5BB9\u5408\u5E76\u7684\u6A21\u578B").addText((text) => text.setPlaceholder("deepseek-chat").setValue(this.plugin.settings.mergeModel).onChange(async (value) => {
+    new import_obsidian.Setting(containerEl).setName("Merge Model").setDesc("\u77E5\u8BC6\u5355\u5143\u805A\u5408\u5E76\u7528\u7684\u6A21\u578B\uFF08\u53EF\u5171\u7528 Chat Model\uFF09").addText((text) => text.setPlaceholder("deepseek-chat").setValue(this.plugin.settings.mergeModel).onChange(async (value) => {
       this.plugin.settings.mergeModel = value;
       await this.plugin.saveSettings();
     }));
@@ -2487,7 +2487,7 @@ var RAGSettingTab = class extends import_obsidian.PluginSettingTab {
       await this.plugin.saveSettings();
     }));
     containerEl.createEl("h3", { text: "\u7D22\u5F15\u5361\u8BED\u4E49\u586B\u5145" });
-    new import_obsidian.Setting(containerEl).setName("\u586B\u5145\u6A21\u578B").setDesc("\u7528\u4E8E\u586B\u5145 topic_secondary / question_types / best_for / not_for / read_with \u7684\u6A21\u578B").addText((text) => text.setPlaceholder("deepseek-chat").setValue(this.plugin.settings.enrichModel).onChange(async (value) => {
+    new import_obsidian.Setting(containerEl).setName("\u586B\u5145\u6A21\u578B").setDesc("\u7528\u4E8E\u586B\u5145 one_line_summary / topic_secondary / question_types / best_for / not_for \u7684\u6A21\u578B").addText((text) => text.setPlaceholder("deepseek-chat").setValue(this.plugin.settings.enrichModel).onChange(async (value) => {
       this.plugin.settings.enrichModel = value;
       await this.plugin.saveSettings();
     }));
@@ -2516,7 +2516,7 @@ var RAGSettingTab = class extends import_obsidian.PluginSettingTab {
         await this.plugin.saveSettings();
       }
     }));
-    new import_obsidian.Setting(containerEl).setName("\u542F\u7528\u67E5\u8BE2\u7C7B\u578B\u68C0\u6D4B").setDesc("\u6839\u636E\u67E5\u8BE2\u7C7B\u578B\u81EA\u52A8\u8C03\u6574\u6743\u91CD").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableQueryTypeDetection).onChange(async (value) => {
+    new import_obsidian.Setting(containerEl).setName("\u542F\u7528\u67E5\u8BE2\u7C7B\u578B\u68C0\u6D4B").setDesc("\u68C0\u6D4B\u67E5\u8BE2\u7C7B\u578B\uFF08\u5B9A\u4E49/\u6B65\u9AA4/\u5BF9\u6BD4\u7B49\uFF09\uFF0C\u5339\u914D\u5361\u7247\u7684 question_types \u63D0\u5347\u6392\u5E8F").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableQueryTypeDetection).onChange(async (value) => {
       this.plugin.settings.enableQueryTypeDetection = value;
       await this.plugin.saveSettings();
     }));
@@ -2529,7 +2529,7 @@ var RAGSettingTab = class extends import_obsidian.PluginSettingTab {
       this.plugin.settings.localServerEnabled = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("\u76D1\u542C\u7AEF\u53E3").setDesc("\u672C\u5730 API \u670D\u52A1\u7AEF\u53E3\u53F7\uFF08\u4EC5\u76D1\u542C 127.0.0.1\uFF09").addText((text) => text.setPlaceholder("8765").setValue(String(this.plugin.settings.localServerPort)).onChange(async (value) => {
+    new import_obsidian.Setting(containerEl).setName("\u76D1\u542C\u7AEF\u53E3").setDesc("\u672C\u5730 API \u670D\u52A1\u7AEF\u53E3\u53F7\uFF08\u76D1\u542C 0.0.0.0\uFF0C\u5141 WSL/\u5C40\u57DF\u7F51\u8BBF\u95EE\uFF09").addText((text) => text.setPlaceholder("8765").setValue(String(this.plugin.settings.localServerPort)).onChange(async (value) => {
       const num = parseInt(value, 10);
       if (!isNaN(num) && num > 0 && num < 65536) {
         this.plugin.settings.localServerPort = num;
