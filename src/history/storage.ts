@@ -27,7 +27,7 @@ export class HistoryStorage {
   async load(): Promise<LocalHistory> {
     try {
       const adapter = this.app.vault.adapter;
-      const dataPath = `${this.pluginDir}/data.json`;
+      const dataPath = `${this.pluginDir}/history.json`;
 
       if (await adapter.exists(dataPath)) {
         const raw = await adapter.read(dataPath);
@@ -70,7 +70,7 @@ export class HistoryStorage {
       };
 
       await adapter.write(
-        `${this.pluginDir}/data.json`,
+        `${this.pluginDir}/history.json`,
         JSON.stringify(data, null, 2)
       );
     } catch (error) {

@@ -4509,7 +4509,7 @@ var HistoryStorage = class {
   async load() {
     try {
       const adapter = this.app.vault.adapter;
-      const dataPath = `${this.pluginDir}/data.json`;
+      const dataPath = `${this.pluginDir}/history.json`;
       if (await adapter.exists(dataPath)) {
         const raw = await adapter.read(dataPath);
         const data = JSON.parse(raw);
@@ -4542,7 +4542,7 @@ var HistoryStorage = class {
         ...history
       };
       await adapter.write(
-        `${this.pluginDir}/data.json`,
+        `${this.pluginDir}/history.json`,
         JSON.stringify(data, null, 2)
       );
     } catch (error) {
