@@ -45,6 +45,14 @@ export class RetrievalManager {
    */
   async buildIndexes(onProgress?: (stage: string, current: number, total: number) => void): Promise<void> {
     console.log("[RAG] Building all indexes...");
+
+    // Wait for vault file cache to be ready (race condition on startup)
+    onProgress?.("等待文件索引就绪...", 0, 1);
+    for (let retry = 0; retry < 30; retry++) {
+      if (this.vault.getMarkdownFiles().length > 0) break;
+      await new Promise(r => setTimeout(r, 300));
+    }
+
     onProgress?.("重建关键词索引...", 0, 1);
     const [kw, cards] = await Promise.all([
       this.keywordRetriever.buildIndex(),

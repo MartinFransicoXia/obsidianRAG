@@ -3894,6 +3894,12 @@ var RetrievalManager = class {
    */
   async buildIndexes(onProgress) {
     console.log("[RAG] Building all indexes...");
+    onProgress?.("\u7B49\u5F85\u6587\u4EF6\u7D22\u5F15\u5C31\u7EEA...", 0, 1);
+    for (let retry = 0; retry < 30; retry++) {
+      if (this.vault.getMarkdownFiles().length > 0)
+        break;
+      await new Promise((r) => setTimeout(r, 300));
+    }
     onProgress?.("\u91CD\u5EFA\u5173\u952E\u8BCD\u7D22\u5F15...", 0, 1);
     const [kw, cards] = await Promise.all([
       this.keywordRetriever.buildIndex(),
