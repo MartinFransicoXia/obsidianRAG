@@ -142,6 +142,51 @@ export class VectorRetriever {
     console.log(`[RAG] Vector index built: ${this.embeddings.size} chunk embeddings persisted`);
   }
 
+  /** Incremental update: delete old chunks for docId, read file fresh, embed new */
+  async upsertDocument(filePath: string): Promise<void> {
+    if (!this.loaded || !this.settings.apiKey) return;
+
+    // 1) Read fresh content from vault
+    const file = this.vault.getAbstractFileByPath(filePath);
+    if (!file || !("stat" in file)) return;
+    const doc = await fileToDocument(file, this.vault);
+
+    // 2) Remove old chunks for this docId from memory
+    const docId = doc.id;
+    const oldChunkIds: string[] = [];
+    for (const chunkId of this.embeddings.keys()) {
+      if (chunkId.startsWith(`${docId}#`)) oldChunkIds.push(chunkId);
+    }
+    for (const cid of oldChunkIds) {
+      this.embeddings.delete(cid);
+      this.chunkInfo.delete(cid);
+    }
+
+    // 3) Chunk and embed new content
+    const chunks = chunkMarkdown(doc.content, CHUNK_TARGET, CHUNK_OVERLAP, CHUNK_MAX);
+    const newChunks: Array<{ chunkId: string; embedding: number[] }> = [];
+    const newInfo: Array<{ chunkId: string; info: ChunkInfo }> = [];
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkId = `${docId}#chunk_${i}`;
+      const text = `${doc.title}\n${chunks[i].text}`;
+      try {
+        const embedding = await this.client.embed(text);
+        this.embeddings.set(chunkId, embedding);
+        this.chunkInfo.set(chunkId, { docId, title: doc.title, path: doc.path, scope: "mainline" });
+        newChunks.push({ chunkId, embedding });
+        newInfo.push({ chunkId, info: { docId, title: doc.title, path: doc.path, scope: "mainline" } });
+      } catch (e) {
+        console.warn(`[RAG] Failed to embed chunk ${chunkId}:`, e);
+      }
+    }
+
+    // 4) Persist — full save to remove old chunks from DB
+    if (newChunks.length > 0) {
+      await this.store.save();
+    }
+  }
+
   /** Clear all persisted embeddings (force full rebuild next time) */
   async clearStore(): Promise<void> {
     await this.store.clear();

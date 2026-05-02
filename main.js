@@ -3522,6 +3522,45 @@ ${chunks[i].text}`;
     this.loaded = true;
     console.log(`[RAG] Vector index built: ${this.embeddings.size} chunk embeddings persisted`);
   }
+  /** Incremental update: delete old chunks for docId, read file fresh, embed new */
+  async upsertDocument(filePath) {
+    if (!this.loaded || !this.settings.apiKey)
+      return;
+    const file = this.vault.getAbstractFileByPath(filePath);
+    if (!file || !("stat" in file))
+      return;
+    const doc = await fileToDocument(file, this.vault);
+    const docId = doc.id;
+    const oldChunkIds = [];
+    for (const chunkId of this.embeddings.keys()) {
+      if (chunkId.startsWith(`${docId}#`))
+        oldChunkIds.push(chunkId);
+    }
+    for (const cid of oldChunkIds) {
+      this.embeddings.delete(cid);
+      this.chunkInfo.delete(cid);
+    }
+    const chunks = chunkMarkdown(doc.content, CHUNK_TARGET, CHUNK_OVERLAP, CHUNK_MAX);
+    const newChunks = [];
+    const newInfo = [];
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkId = `${docId}#chunk_${i}`;
+      const text = `${doc.title}
+${chunks[i].text}`;
+      try {
+        const embedding = await this.client.embed(text);
+        this.embeddings.set(chunkId, embedding);
+        this.chunkInfo.set(chunkId, { docId, title: doc.title, path: doc.path, scope: "mainline" });
+        newChunks.push({ chunkId, embedding });
+        newInfo.push({ chunkId, info: { docId, title: doc.title, path: doc.path, scope: "mainline" } });
+      } catch (e) {
+        console.warn(`[RAG] Failed to embed chunk ${chunkId}:`, e);
+      }
+    }
+    if (newChunks.length > 0) {
+      await this.store.save();
+    }
+  }
   /** Clear all persisted embeddings (force full rebuild next time) */
   async clearStore() {
     await this.store.clear();
@@ -3877,7 +3916,10 @@ var RetrievalManager = class {
    * Update a single document in keyword index
    */
   async updateDocument(filePath) {
-    await this.keywordRetriever.updateDocument(filePath);
+    await Promise.all([
+      this.keywordRetriever.updateDocument(filePath),
+      this.vectorRetriever.upsertDocument(filePath)
+    ]);
   }
   /**
    * Remove a document from keyword index

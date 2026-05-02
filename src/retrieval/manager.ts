@@ -107,7 +107,10 @@ export class RetrievalManager {
    * Update a single document in keyword index
    */
   async updateDocument(filePath: string): Promise<void> {
-    await this.keywordRetriever.updateDocument(filePath);
+    await Promise.all([
+      this.keywordRetriever.updateDocument(filePath),
+      this.vectorRetriever.upsertDocument(filePath),
+    ]);
   }
 
   /**
