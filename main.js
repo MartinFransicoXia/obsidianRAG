@@ -2898,12 +2898,12 @@ var IndexCardStore = class {
       const raw = link.trim().replace(/^\[\[|\]\]$/g, "");
       const clean = raw.replace(/\.md$/, "").toLowerCase();
       let resolved;
-      if (this.allKnownPaths.has(clean)) {
-        resolved = clean;
-      }
-      if (!resolved) {
-        const namePart = clean.split("/").pop() || clean;
-        resolved = this.basenameToPath.get(namePart);
+      const namePart = clean.split("/").pop() || clean;
+      resolved = this.basenameToPath.get(namePart);
+      if (!resolved && this.allKnownPaths.has(clean)) {
+        const card2 = this.cardsByPath.get(clean);
+        if (card2)
+          resolved = card2.path;
       }
       if (resolved && !seen.has(resolved)) {
         seen.add(resolved);

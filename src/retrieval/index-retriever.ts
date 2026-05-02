@@ -82,18 +82,18 @@ export class IndexCardStore {
       const raw = link.trim().replace(/^\[\[|\]\]$/g, "");
       const clean = raw.replace(/\.md$/, "").toLowerCase();
 
-      // Resolve to actual file path
+      // Resolve to actual file path (with .md extension)
       let resolved: string | undefined;
 
-      // 1) Exact full path match
-      if (this.allKnownPaths.has(clean)) {
-        resolved = clean;
-      }
+      // Basename → full path reverse lookup
+      const namePart = clean.split("/").pop() || clean;
+      resolved = this.basenameToPath.get(namePart);
 
-      // 2) Basename → path reverse lookup
-      if (!resolved) {
-        const namePart = clean.split("/").pop() || clean;
-        resolved = this.basenameToPath.get(namePart);
+      // Fallback: exact path match (if already has path prefix)
+      if (!resolved && this.allKnownPaths.has(clean)) {
+        // clean might be a full path without .md — look up in cardsByPath
+        const card = this.cardsByPath.get(clean);
+        if (card) resolved = card.path;
       }
 
       if (resolved && !seen.has(resolved)) {
