@@ -54,20 +54,11 @@ module.exports = async function fixOutlinks(params) {
       } else {
         links = inner.split(",").map(s => {
           let cleaned = s.trim().replace(/^"|"$/g, "").trim();
-
-          // Count bracket layers and collapse to one
-          cleaned = cleaned.replace(/^\[+/, "[").replace(/\]+$/, "]");
-
-          // If it's already wrapped in [[]], keep it; otherwise add
-          if (!cleaned.startsWith("[[")) {
-            // Might be bare text -> wrap
-            return `"[[${cleaned}]]"`;
-          }
-
-          // Ensure exactly one layer of [[]]
-          const core = cleaned.replace(/^\[+|\[+$/g, "").replace(/\]+$/g, "");
+          // Strip all bracket layers, then wrap with exactly one [[ ]]
+          const core = cleaned.replace(/^\[+/g, "").replace(/\]+$/g, "");
+          if (!core) return null;
           return `"[[${core}]]"`;
-        });
+        }).filter(Boolean);
       }
 
       const fixedOutlinks = links.length > 0
