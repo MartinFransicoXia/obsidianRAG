@@ -5067,10 +5067,17 @@ var CardGenerator = class {
   parseYamlList(raw) {
     if (!raw)
       return [];
+    const inlineMatch = raw.trim().match(/^\s*\[([\s\S]*)\]\s*$/);
+    if (inlineMatch) {
+      const inner = inlineMatch[1];
+      if (!inner.trim())
+        return [];
+      return inner.split(",").map((x) => x.trim().replace(/^["']|["']$/g, "")).filter((x) => x.length > 0);
+    }
     if (raw.includes("\n")) {
       return raw.split("\n").filter((l) => l.trim()).map((l) => l.trim().replace(/^["']|["']$/g, ""));
     }
-    return raw.split(",").filter((x) => x.trim()).map((x) => x.trim().replace(/^["']|["']$/g, ""));
+    return [raw.trim().replace(/^["']|["']$/g, "")];
   }
   // ── Parsing helpers ──────────────────────────────────────
   parseFrontmatter(content) {
@@ -5260,9 +5267,8 @@ var CardGenerator = class {
       lines.push("retrieval_keywords: []");
     }
     if (data.outlinks.length) {
-      lines.push("outlinks:");
-      for (const link of data.outlinks.slice(0, 20))
-        lines.push(`  - [[${escape(link)}]]`);
+      const items = data.outlinks.slice(0, 20).map((l) => `"${escape(l)}"`).join(", ");
+      lines.push(`outlinks: [${items}]`);
     } else {
       lines.push("outlinks: []");
     }
@@ -5299,20 +5305,12 @@ var CardGenerator = class {
       lines.push("not_for: []");
     }
     const fm = lines.join("\n") + "\n";
-    let body = `# ${data.title}
-
-${data.oneLineSummary}`;
-    if (data.outlinks.length) {
-      body += `
-
-## \u5173\u8054\u7B14\u8BB0
-
-${data.outlinks.slice(0, 20).map((l) => `- [[${l}]]`).join("\n")}`;
-    }
     return `---
 ${fm}---
 
-${body}`;
+# ${data.title}
+
+${data.oneLineSummary}`;
   }
 };
 

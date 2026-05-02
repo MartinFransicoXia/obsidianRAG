@@ -295,10 +295,19 @@ export class CardGenerator {
 
   private parseYamlList(raw: string | undefined): string[] {
     if (!raw) return [];
+    // Inline array: ["a", "b"] or [a, b]
+    const inlineMatch = raw.trim().match(/^\s*\[([\s\S]*)\]\s*$/);
+    if (inlineMatch) {
+      const inner = inlineMatch[1];
+      if (!inner.trim()) return [];
+      return inner.split(",").map(x => x.trim().replace(/^["']|["']$/g, "")).filter(x => x.length > 0);
+    }
+    // Block list: a\nb\nc
     if (raw.includes("\n")) {
       return raw.split("\n").filter(l => l.trim()).map(l => l.trim().replace(/^["']|["']$/g, ""));
     }
-    return raw.split(",").filter(x => x.trim()).map(x => x.trim().replace(/^["']|["']$/g, ""));
+    // Single value
+    return [raw.trim().replace(/^["']|["']$/g, "")];
   }
 
   // ── Parsing helpers ──────────────────────────────────────
@@ -520,8 +529,8 @@ export class CardGenerator {
     }
 
     if (data.outlinks.length) {
-      lines.push("outlinks:");
-      for (const link of data.outlinks.slice(0, 20)) lines.push(`  - [[${escape(link)}]]`);
+      const items = data.outlinks.slice(0, 20).map(l => `"${escape(l)}"`).join(", ");
+      lines.push(`outlinks: [${items}]`);
     } else {
       lines.push("outlinks: []");
     }
@@ -558,10 +567,6 @@ export class CardGenerator {
     }
 
     const fm = lines.join("\n") + "\n";
-    let body = `# ${data.title}\n\n${data.oneLineSummary}`;
-    if (data.outlinks.length) {
-      body += `\n\n## 关联笔记\n\n${data.outlinks.slice(0, 20).map(l => `- [[${l}]]`).join("\n")}`;
-    }
-    return `---\n${fm}---\n\n${body}`;
+    return `---\n${fm}---\n\n# ${data.title}\n\n${data.oneLineSummary}`;
   }
 }
