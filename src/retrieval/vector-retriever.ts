@@ -67,12 +67,31 @@ export class VectorRetriever {
     }
 
     // 3) Identify chunks that need embedding
-    onProgress?.("切片中...", 0, 1);
+    //    First, detect modified files: delete old chunks if mtime changed
+    onProgress?.("检测文件变更...", 0, 1);
     const persistedIds = new Set(this.embeddings.keys());
     const newJobs: Array<{ chunkId: string; text: string; info: ChunkInfo }> = [];
     let totalChunks = 0;
+    let staleCleaned = 0;
 
     for (const [docId, doc] of this.documents) {
+      // Check if file was modified since last index
+      const storedMtime = await this.store.getMeta(`mtime:${docId}`);
+      const currentMtime = String(doc.lastModified);
+      if (storedMtime && storedMtime !== currentMtime) {
+        // File changed — remove old chunks for this doc
+        for (const chunkId of persistedIds) {
+          if (chunkId.startsWith(`${docId}#`)) {
+            this.embeddings.delete(chunkId);
+            this.chunkInfo.delete(chunkId);
+            persistedIds.delete(chunkId);
+            staleCleaned++;
+          }
+        }
+      }
+      await this.store.setMeta(`mtime:${docId}`, currentMtime);
+
+      // Now evaluate chunks
       const chunks = chunkMarkdown(doc.content, CHUNK_TARGET, CHUNK_OVERLAP, CHUNK_MAX);
       for (let i = 0; i < chunks.length; i++) {
         const chunkId = `${docId}#chunk_${i}`;
@@ -92,6 +111,7 @@ export class VectorRetriever {
       }
     }
 
+    if (staleCleaned > 0) console.log(`[RAG] Cleaned ${staleCleaned} stale chunks from modified files`);
     console.log(`[RAG] ${totalChunks} chunks total, ${newJobs.length} new to embed`);
 
     if (newJobs.length === 0) {

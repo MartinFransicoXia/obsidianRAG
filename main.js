@@ -3448,11 +3448,25 @@ var VectorRetriever = class {
       const doc = await fileToDocument(file, this.vault);
       this.documents.set(doc.id, doc);
     }
-    onProgress?.("\u5207\u7247\u4E2D...", 0, 1);
+    onProgress?.("\u68C0\u6D4B\u6587\u4EF6\u53D8\u66F4...", 0, 1);
     const persistedIds = new Set(this.embeddings.keys());
     const newJobs = [];
     let totalChunks = 0;
+    let staleCleaned = 0;
     for (const [docId, doc] of this.documents) {
+      const storedMtime = await this.store.getMeta(`mtime:${docId}`);
+      const currentMtime = String(doc.lastModified);
+      if (storedMtime && storedMtime !== currentMtime) {
+        for (const chunkId of persistedIds) {
+          if (chunkId.startsWith(`${docId}#`)) {
+            this.embeddings.delete(chunkId);
+            this.chunkInfo.delete(chunkId);
+            persistedIds.delete(chunkId);
+            staleCleaned++;
+          }
+        }
+      }
+      await this.store.setMeta(`mtime:${docId}`, currentMtime);
       const chunks = chunkMarkdown(doc.content, CHUNK_TARGET, CHUNK_OVERLAP, CHUNK_MAX);
       for (let i = 0; i < chunks.length; i++) {
         const chunkId = `${docId}#chunk_${i}`;
@@ -3471,6 +3485,8 @@ ${chunks[i].text}`;
         }
       }
     }
+    if (staleCleaned > 0)
+      console.log(`[RAG] Cleaned ${staleCleaned} stale chunks from modified files`);
     console.log(`[RAG] ${totalChunks} chunks total, ${newJobs.length} new to embed`);
     if (newJobs.length === 0) {
       this.loaded = true;
