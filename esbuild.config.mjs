@@ -11,6 +11,7 @@ const context = await esbuild.context({
     "obsidian",
     "electron",
     "@codemirror/*",
+    "http",
     ...builtinModules,
   ],
   format: "cjs",

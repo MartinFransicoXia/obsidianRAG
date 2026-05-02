@@ -558,6 +558,10 @@ export class CardGenerator {
     }
 
     const fm = lines.join("\n") + "\n";
-    return `---\n${fm}---\n\n# ${data.title}\n\n${data.oneLineSummary}`;
+    let body = `# ${data.title}\n\n${data.oneLineSummary}`;
+    if (data.outlinks.length) {
+      body += `\n\n## 关联笔记\n\n${data.outlinks.slice(0, 20).map(l => `- [[${l}]]`).join("\n")}`;
+    }
+    return `---\n${fm}---\n\n${body}`;
   }
 }

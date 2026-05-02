@@ -5298,12 +5298,20 @@ var CardGenerator = class {
       lines.push("not_for: []");
     }
     const fm = lines.join("\n") + "\n";
+    let body = `# ${data.title}
+
+${data.oneLineSummary}`;
+    if (data.outlinks.length) {
+      body += `
+
+## \u5173\u8054\u7B14\u8BB0
+
+${data.outlinks.slice(0, 20).map((l) => `- [[${l}]]`).join("\n")}`;
+    }
     return `---
 ${fm}---
 
-# ${data.title}
-
-${data.oneLineSummary}`;
+${body}`;
   }
 };
 
