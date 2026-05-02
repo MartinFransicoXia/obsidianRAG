@@ -529,7 +529,10 @@ export class CardGenerator {
     }
 
     if (data.outlinks.length) {
-      const items = data.outlinks.slice(0, 20).map(l => `"[[${escape(l)}]]"`).join(", ");
+      const items = data.outlinks.slice(0, 20).map(l => {
+        const clean = l.replace(/^\[+|\]+$/g, ""); // strip any [[...]] wrapping
+        return `"[[${escape(clean)}]]"`;
+      }).join(", ");
       lines.push(`outlinks: [${items}]`);
     } else {
       lines.push("outlinks: []");
