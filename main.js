@@ -3252,6 +3252,7 @@ ${curr.text}` : curr.text,
 var import_sql = __toESM(require_sql_wasm_browser());
 var DB_PATH = ".obsidian/plugins/obsidian-enhanced-rag/data/vectors.db";
 var DATA_DIR = ".obsidian/plugins/obsidian-enhanced-rag/data";
+var WASM_PATH = ".obsidian/plugins/obsidian-enhanced-rag/sql-wasm.wasm";
 var VectorStore = class {
   constructor(vault) {
     this.db = null;
@@ -3276,8 +3277,9 @@ var VectorStore = class {
   async initDB() {
     if (this.db)
       return this.db;
-    const SQL = await (0, import_sql.default)();
     await this.ensureDir();
+    const wasmBuffer = await this.vault.adapter.readBinary(WASM_PATH);
+    const SQL = await (0, import_sql.default)({ wasmBinary: new Uint8Array(wasmBuffer) });
     let buffer = null;
     try {
       if (await this.vault.adapter.exists(DB_PATH)) {

@@ -8,6 +8,7 @@ import initSqlJs, { Database as SqlJsDatabase } from "sql.js";
 
 const DB_PATH = ".obsidian/plugins/obsidian-enhanced-rag/data/vectors.db";
 const DATA_DIR = ".obsidian/plugins/obsidian-enhanced-rag/data";
+const WASM_PATH = ".obsidian/plugins/obsidian-enhanced-rag/sql-wasm.wasm";
 
 interface ChunkInfo {
   docId: string;
@@ -38,8 +39,11 @@ export class VectorStore {
   private async initDB(): Promise<SqlJsDatabase> {
     if (this.db) return this.db;
 
-    const SQL = await initSqlJs();
     await this.ensureDir();
+
+    // Load WASM binary from plugin directory (avoid fetch)
+    const wasmBuffer = await this.vault.adapter.readBinary(WASM_PATH);
+    const SQL = await initSqlJs({ wasmBinary: new Uint8Array(wasmBuffer) });
 
     // Try to load existing database file
     let buffer: ArrayBuffer | null = null;
