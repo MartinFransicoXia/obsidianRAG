@@ -196,6 +196,12 @@ not_for: []
 4. 索引会自动增量更新
 5. Wiki Link 拓展依赖 `00_INDEX/files/` 中的索引卡
 
+## Agent 集成
+
+插件支持通过本地 HTTP API 暴露检索能力，可与 Hermes / OpenClaw 等 Agent 配合使用。
+
+配套 Agent Skill 示例：[HERMES_AGENT_SKILL_obsidian-rag-search.md](HERMES_AGENT_SKILL_obsidian-rag-search.md) — 覆盖查询、规划、复习三类工作流。
+
 ## 许可证
 
 MIT License
