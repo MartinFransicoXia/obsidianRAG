@@ -5267,7 +5267,7 @@ var CardGenerator = class {
       lines.push("retrieval_keywords: []");
     }
     if (data.outlinks.length) {
-      const items = data.outlinks.slice(0, 20).map((l) => `"${escape(l)}"`).join(", ");
+      const items = data.outlinks.slice(0, 20).map((l) => `"[[${escape(l)}]]"`).join(", ");
       lines.push(`outlinks: [${items}]`);
     } else {
       lines.push("outlinks: []");
