@@ -5395,8 +5395,8 @@ var LocalServer = class {
           reject(err);
         }
       });
-      this.server.listen(this.port, "127.0.0.1", () => {
-        console.log(`[LocalAPI] Listening on http://127.0.0.1:${this.port}`);
+      this.server.listen(this.port, "0.0.0.0", () => {
+        console.log(`[LocalAPI] Listening on http://0.0.0.0:${this.port}`);
         resolve();
       });
     });

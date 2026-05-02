@@ -1,6 +1,6 @@
 /**
  * Local HTTP API server — exposes pipeline search to local agents (Hermes, OpenClaw, etc.)
- * Binds to 127.0.0.1 only, never exposed to network.
+ * Binds to 0.0.0.0 only, never exposed to network.
  */
 
 import * as http from "http";
@@ -97,8 +97,8 @@ export class LocalServer {
         }
       });
 
-      this.server.listen(this.port, "127.0.0.1", () => {
-        console.log(`[LocalAPI] Listening on http://127.0.0.1:${this.port}`);
+      this.server.listen(this.port, "0.0.0.0", () => {
+        console.log(`[LocalAPI] Listening on http://0.0.0.0:${this.port}`);
         resolve();
       });
     });
