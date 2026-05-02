@@ -386,13 +386,17 @@ export default class EnhancedRAGPlugin extends Plugin {
    * Rebuild all indexes
    */
   async rebuildIndexes(): Promise<void> {
-    new Notice("正在重建索引...");
+    const notice = new Notice("正在重建索引...", 0);
     try {
-      await this.retrievalManager.buildIndexes();
-      new Notice("索引重建完成");
+      await this.retrievalManager.buildIndexes((stage, current, total) => {
+        notice.setMessage(`索引: ${stage} (${current}/${total})`);
+      });
+      notice.setMessage("索引重建完成");
+      setTimeout(() => notice.hide(), 5000);
     } catch (error) {
       console.error("[RAG] Index rebuild failed:", error);
-      new Notice(`索引重建失败: ${(error as Error).message}`);
+      notice.setMessage(`索引重建失败: ${(error as Error).message}`);
+      setTimeout(() => notice.hide(), 8000);
     }
   }
 

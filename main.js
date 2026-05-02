@@ -3447,22 +3447,25 @@ var VectorRetriever = class {
   /**
    * Build vector index — restore from SQLite DB → embed only new/unknown chunks
    */
-  async buildIndex() {
+  async buildIndex(onProgress) {
     if (!this.settings.apiKey) {
       console.warn("[RAG] Vector search disabled: no API key");
       this.loaded = true;
       return;
     }
+    onProgress?.("\u6062\u590D\u6570\u636E\u5E93...", 0, 1);
     const hasData = await this.store.load();
     if (hasData) {
       console.log(`[RAG] Restored ${this.embeddings.size} chunk embeddings from vectors.db`);
     }
+    onProgress?.("\u626B\u63CF\u6587\u4EF6...", 0, 1);
     this.documents.clear();
     const files = getAllMarkdownFiles(this.vault);
     for (const file of files) {
       const doc = await fileToDocument(file, this.vault);
       this.documents.set(doc.id, doc);
     }
+    onProgress?.("\u5207\u7247\u4E2D...", 0, 1);
     const persistedIds = new Set(this.embeddings.keys());
     const newJobs = [];
     let totalChunks = 0;
@@ -3488,10 +3491,12 @@ ${chunks[i].text}`;
     console.log(`[RAG] ${totalChunks} chunks total, ${newJobs.length} new to embed`);
     if (newJobs.length === 0) {
       this.loaded = true;
+      onProgress?.("\u5B8C\u6210", totalChunks, totalChunks);
       return;
     }
     const batchSize = 5;
     for (let i = 0; i < newJobs.length; i += batchSize) {
+      onProgress?.(`\u5D4C\u5165\u4E2D ${i + 1}-${Math.min(i + batchSize, newJobs.length)}/${newJobs.length}`, i + 1, newJobs.length);
       const batch = newJobs.slice(i, i + batchSize);
       const embedBatch = [];
       const infoBatch = [];
@@ -3824,13 +3829,15 @@ var RetrievalManager = class {
   /**
    * Build all indexes (keyword + cards + vector)
    */
-  async buildIndexes() {
+  async buildIndexes(onProgress) {
     console.log("[RAG] Building all indexes...");
-    await Promise.all([
+    onProgress?.("\u91CD\u5EFA\u5173\u952E\u8BCD\u7D22\u5F15...", 0, 1);
+    const [kw, cards] = await Promise.all([
       this.keywordRetriever.buildIndex(),
-      this.cardStore.loadIndex(),
-      this.vectorRetriever.buildIndex()
+      this.cardStore.loadIndex()
     ]);
+    onProgress?.("\u91CD\u5EFA\u5361\u7247\u7D22\u5F15...", 0, 1);
+    await this.vectorRetriever.buildIndex(onProgress);
     console.log("[RAG] All indexes built");
   }
   /**
@@ -5856,13 +5863,17 @@ var EnhancedRAGPlugin = class extends import_obsidian7.Plugin {
    * Rebuild all indexes
    */
   async rebuildIndexes() {
-    new import_obsidian7.Notice("\u6B63\u5728\u91CD\u5EFA\u7D22\u5F15...");
+    const notice = new import_obsidian7.Notice("\u6B63\u5728\u91CD\u5EFA\u7D22\u5F15...", 0);
     try {
-      await this.retrievalManager.buildIndexes();
-      new import_obsidian7.Notice("\u7D22\u5F15\u91CD\u5EFA\u5B8C\u6210");
+      await this.retrievalManager.buildIndexes((stage, current, total) => {
+        notice.setMessage(`\u7D22\u5F15: ${stage} (${current}/${total})`);
+      });
+      notice.setMessage("\u7D22\u5F15\u91CD\u5EFA\u5B8C\u6210");
+      setTimeout(() => notice.hide(), 5e3);
     } catch (error) {
       console.error("[RAG] Index rebuild failed:", error);
-      new import_obsidian7.Notice(`\u7D22\u5F15\u91CD\u5EFA\u5931\u8D25: ${error.message}`);
+      notice.setMessage(`\u7D22\u5F15\u91CD\u5EFA\u5931\u8D25: ${error.message}`);
+      setTimeout(() => notice.hide(), 8e3);
     }
   }
   /**

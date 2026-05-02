@@ -43,13 +43,15 @@ export class RetrievalManager {
   /**
    * Build all indexes (keyword + cards + vector)
    */
-  async buildIndexes(): Promise<void> {
+  async buildIndexes(onProgress?: (stage: string, current: number, total: number) => void): Promise<void> {
     console.log("[RAG] Building all indexes...");
-    await Promise.all([
+    onProgress?.("重建关键词索引...", 0, 1);
+    const [kw, cards] = await Promise.all([
       this.keywordRetriever.buildIndex(),
       this.cardStore.loadIndex(),
-      this.vectorRetriever.buildIndex()
     ]);
+    onProgress?.("重建卡片索引...", 0, 1);
+    await this.vectorRetriever.buildIndex(onProgress);
     console.log("[RAG] All indexes built");
   }
 

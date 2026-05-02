@@ -50,7 +50,7 @@ export class VectorRetriever {
   /**
    * Build vector index — restore from SQLite DB → embed only new/unknown chunks
    */
-  async buildIndex(): Promise<void> {
+  async buildIndex(onProgress?: (stage: string, current: number, total: number) => void): Promise<void> {
     if (!this.settings.apiKey) {
       console.warn("[RAG] Vector search disabled: no API key");
       this.loaded = true;
@@ -58,12 +58,14 @@ export class VectorRetriever {
     }
 
     // 1) Load persisted embeddings from SQLite database file
+    onProgress?.("恢复数据库...", 0, 1);
     const hasData = await this.store.load();
     if (hasData) {
       console.log(`[RAG] Restored ${this.embeddings.size} chunk embeddings from vectors.db`);
     }
 
     // 2) Build document map
+    onProgress?.("扫描文件...", 0, 1);
     this.documents.clear();
     const files = getAllMarkdownFiles(this.vault);
     for (const file of files) {
@@ -72,6 +74,7 @@ export class VectorRetriever {
     }
 
     // 3) Identify chunks that need embedding
+    onProgress?.("切片中...", 0, 1);
     const persistedIds = new Set(this.embeddings.keys());
     const newJobs: Array<{ chunkId: string; text: string; info: ChunkInfo }> = [];
     let totalChunks = 0;
@@ -100,12 +103,14 @@ export class VectorRetriever {
 
     if (newJobs.length === 0) {
       this.loaded = true;
+      onProgress?.("完成", totalChunks, totalChunks);
       return;
     }
 
     // 4) Embed new chunks in batches, persist immediately
     const batchSize = 5;
     for (let i = 0; i < newJobs.length; i += batchSize) {
+      onProgress?.(`嵌入中 ${i + 1}-${Math.min(i + batchSize, newJobs.length)}/${newJobs.length}`, i + 1, newJobs.length);
       const batch = newJobs.slice(i, i + batchSize);
       const embedBatch: Array<{ chunkId: string; embedding: number[] }> = [];
       const infoBatch: Array<{ chunkId: string; info: ChunkInfo }> = [];
