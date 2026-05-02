@@ -24,6 +24,9 @@ export interface PluginSettings {
   // Index cards
   autoGenerateCards: boolean;
   enrichModel: string;  // 索引卡语义字段填充模型
+  // Local API server
+  localServerEnabled: boolean;
+  localServerPort: number;
   // General
   cacheSize: number;
   historyRetentionDays: number;
@@ -48,6 +51,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   rerankApiKey: "",
   autoGenerateCards: true,
   enrichModel: "deepseek-chat",
+  localServerEnabled: true,
+  localServerPort: 8765,
   cacheSize: 100,
   historyRetentionDays: 30,
   enableQueryTypeDetection: true,

@@ -243,6 +243,33 @@ export class RAGSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
+    // Local API Server
+    containerEl.createEl("h3", { text: "本地 API 服务" });
+
+    new Setting(containerEl)
+      .setName("启用本地 API")
+      .setDesc("启动本地 HTTP 服务，暴露检索接口给 Hermes/OpenClaw 等 Agent 调用")
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.localServerEnabled)
+        .onChange(async (value) => {
+          this.plugin.settings.localServerEnabled = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName("监听端口")
+      .setDesc("本地 API 服务端口号（仅监听 127.0.0.1）")
+      .addText(text => text
+        .setPlaceholder("8765")
+        .setValue(String(this.plugin.settings.localServerPort))
+        .onChange(async (value) => {
+          const num = parseInt(value, 10);
+          if (!isNaN(num) && num > 0 && num < 65536) {
+            this.plugin.settings.localServerPort = num;
+            await this.plugin.saveSettings();
+          }
+        }));
+
     // UI Configuration
     containerEl.createEl("h3", { text: "界面配置" });
 

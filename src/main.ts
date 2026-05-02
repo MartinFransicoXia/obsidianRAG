@@ -8,6 +8,7 @@ import { KnowledgeGenerator } from "./knowledge/generator";
 import { HistoryManager } from "./history/manager";
 import { CloudCache } from "./cloud/cache";
 import { CardGenerator } from "./retrieval/card-generator";
+import { LocalServer } from "./utils/local-server";
 import { MainRAGView, VIEW_TYPE_RAG } from "./ui/main-view";
 import { UnitDetailView, VIEW_TYPE_RAG_UNIT } from "./ui/unit-view";
 import { HistoryView, VIEW_TYPE_RAG_HISTORY } from "./ui/history-view";
@@ -79,6 +80,7 @@ export default class EnhancedRAGPlugin extends Plugin {
   private historyManager!: HistoryManager;
   private cloudCache!: CloudCache;
   private cardGenerator!: CardGenerator;
+  private localServer!: LocalServer;
 
   private mainView: MainRAGView | null = null;
 
@@ -160,10 +162,20 @@ export default class EnhancedRAGPlugin extends Plugin {
       console.error("[RAG] Failed to build indexes:", err);
     });
 
+    // Start local API server
+    if (this.settings.localServerEnabled) {
+      this.localServer = new LocalServer(this.retrievalManager, this.settings.localServerPort);
+      this.localServer.start().catch(err => {
+        console.error("[RAG] Failed to start local API server:", err);
+      });
+    }
+
     console.log("[RAG] Plugin loaded");
   }
 
   async onunload(): Promise<void> {
+    // Stop local API server
+    this.localServer?.stop();
     // Clean up views
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_RAG);
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_RAG_UNIT);

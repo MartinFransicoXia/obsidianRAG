@@ -2411,6 +2411,8 @@ var DEFAULT_SETTINGS = {
   rerankApiKey: "",
   autoGenerateCards: true,
   enrichModel: "deepseek-chat",
+  localServerEnabled: true,
+  localServerPort: 8765,
   cacheSize: 100,
   historyRetentionDays: 30,
   enableQueryTypeDetection: true,
@@ -2521,6 +2523,18 @@ var RAGSettingTab = class extends import_obsidian.PluginSettingTab {
     new import_obsidian.Setting(containerEl).setName("\u81EA\u52A8\u751F\u6210\u7D22\u5F15\u5361").setDesc("\u6587\u4EF6\u4FDD\u5B58\u65F6\u81EA\u52A8\u751F\u6210/\u66F4\u65B0\u7D22\u5F15\u5361\u5230 00_INDEX/files/").addToggle((toggle) => toggle.setValue(this.plugin.settings.autoGenerateCards).onChange(async (value) => {
       this.plugin.settings.autoGenerateCards = value;
       await this.plugin.saveSettings();
+    }));
+    containerEl.createEl("h3", { text: "\u672C\u5730 API \u670D\u52A1" });
+    new import_obsidian.Setting(containerEl).setName("\u542F\u7528\u672C\u5730 API").setDesc("\u542F\u52A8\u672C\u5730 HTTP \u670D\u52A1\uFF0C\u66B4\u9732\u68C0\u7D22\u63A5\u53E3\u7ED9 Hermes/OpenClaw \u7B49 Agent \u8C03\u7528").addToggle((toggle) => toggle.setValue(this.plugin.settings.localServerEnabled).onChange(async (value) => {
+      this.plugin.settings.localServerEnabled = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("\u76D1\u542C\u7AEF\u53E3").setDesc("\u672C\u5730 API \u670D\u52A1\u7AEF\u53E3\u53F7\uFF08\u4EC5\u76D1\u542C 127.0.0.1\uFF09").addText((text) => text.setPlaceholder("8765").setValue(String(this.plugin.settings.localServerPort)).onChange(async (value) => {
+      const num = parseInt(value, 10);
+      if (!isNaN(num) && num > 0 && num < 65536) {
+        this.plugin.settings.localServerPort = num;
+        await this.plugin.saveSettings();
+      }
     }));
     containerEl.createEl("h3", { text: "\u754C\u9762\u914D\u7F6E" });
     new import_obsidian.Setting(containerEl).setName("\u81EA\u52A8\u6253\u5F00\u9762\u677F").setDesc("\u641C\u7D22\u65F6\u81EA\u52A8\u6253\u5F00 RAG \u9762\u677F").addToggle((toggle) => toggle.setValue(this.plugin.settings.autoOpenChatPanel).onChange(async (value) => {
@@ -4789,8 +4803,8 @@ var HistoryManager = class {
   /**
    * Import history data
    */
-  async importData(json) {
-    this.history = await this.storage.import(json);
+  async importData(json2) {
+    this.history = await this.storage.import(json2);
     this.history.topicPreferences = this.analyzer.calculateTopicPreferences(this.history);
     await this.save();
   }
@@ -5293,6 +5307,105 @@ ${data.oneLineSummary}`;
   }
 };
 
+// src/utils/local-server.ts
+var http = __toESM(require("http"));
+var MAX_BODY = 1024 * 10;
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY) {
+        req.destroy();
+        reject(new Error("body too large"));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+    req.on("error", reject);
+  });
+}
+function json(res, data, status = 200) {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(data));
+}
+var LocalServer = class {
+  constructor(manager, port) {
+    this.server = null;
+    this.manager = manager;
+    this.port = port;
+  }
+  start() {
+    if (this.server)
+      return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      this.server = http.createServer(async (req, res) => {
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+        res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+        if (req.method === "OPTIONS") {
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+        if (req.method === "POST" && req.url === "/search") {
+          try {
+            const body = await readBody(req);
+            const { query, limit = 10 } = JSON.parse(body);
+            if (!query || typeof query !== "string") {
+              return json(res, { error: "query is required" }, 400);
+            }
+            const result = await this.manager.pipelineSearch(query, Math.min(limit, 50));
+            const cardsObj = {};
+            for (const [k, v] of result.cards) {
+              cardsObj[k] = v;
+            }
+            return json(res, {
+              ranked: result.ranked,
+              cards: cardsObj
+            });
+          } catch (e) {
+            console.error("[LocalAPI] /search error:", e);
+            return json(res, { error: String(e) }, 500);
+          }
+        }
+        if (req.method === "GET" && req.url === "/health") {
+          const stats = this.manager.getStats();
+          return json(res, { status: "ok", ...stats });
+        }
+        json(res, { error: "not found" }, 404);
+      });
+      this.server.on("error", (err) => {
+        if (err.code === "EADDRINUSE") {
+          console.warn(`[LocalAPI] Port ${this.port} in use, trying ${this.port + 1}`);
+          this.port++;
+          this.server?.close();
+          this.server = null;
+          this.start().then(resolve).catch(reject);
+        } else {
+          reject(err);
+        }
+      });
+      this.server.listen(this.port, "127.0.0.1", () => {
+        console.log(`[LocalAPI] Listening on http://127.0.0.1:${this.port}`);
+        resolve();
+      });
+    });
+  }
+  stop() {
+    if (this.server) {
+      this.server.close();
+      this.server = null;
+      console.log("[LocalAPI] Server stopped");
+    }
+  }
+  getPort() {
+    return this.port;
+  }
+};
+
 // src/ui/main-view.ts
 var import_obsidian4 = require("obsidian");
 var VIEW_TYPE_RAG = "enhanced-rag-view";
@@ -5695,9 +5808,16 @@ var EnhancedRAGPlugin = class extends import_obsidian7.Plugin {
     this.retrievalManager.buildIndexes().catch((err) => {
       console.error("[RAG] Failed to build indexes:", err);
     });
+    if (this.settings.localServerEnabled) {
+      this.localServer = new LocalServer(this.retrievalManager, this.settings.localServerPort);
+      this.localServer.start().catch((err) => {
+        console.error("[RAG] Failed to start local API server:", err);
+      });
+    }
     console.log("[RAG] Plugin loaded");
   }
   async onunload() {
+    this.localServer?.stop();
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_RAG);
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_RAG_UNIT);
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_RAG_HISTORY);
