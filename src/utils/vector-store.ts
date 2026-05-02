@@ -71,6 +71,10 @@ export class VectorStore {
         scope TEXT DEFAULT 'mainline'
       );
       CREATE INDEX IF NOT EXISTS idx_chunk_info_doc ON chunk_info(doc_id);
+      CREATE TABLE IF NOT EXISTS meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
     `);
 
     return this.db;
@@ -192,6 +196,27 @@ export class VectorStore {
     } catch (e) {
       console.warn("[VectorStore] Failed to save incrementally:", e);
     }
+  }
+
+  /** Simple key-value metadata storage (e.g., file mtimes) */
+  async getMeta(key: string): Promise<string | null> {
+    const db = await this.initDB();
+    try {
+      const rows = db.exec("SELECT value FROM meta WHERE key = ?", [key]);
+      if (rows.length > 0 && rows[0].values.length > 0) {
+        return rows[0].values[0][0] as string;
+      }
+    } catch { /* not found */ }
+    return null;
+  }
+
+  async setMeta(key: string, value: string): Promise<void> {
+    const db = await this.initDB();
+    db.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", [key, value]);
+    // Persist immediately so mtime tracking survives even if no chunks need embedding
+    const data = db.export();
+    await this.ensureDir();
+    await this.vault.adapter.writeBinary(DB_PATH, data.buffer as ArrayBuffer);
   }
 
   /** Clear all persisted data */
