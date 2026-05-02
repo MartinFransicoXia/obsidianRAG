@@ -13,6 +13,7 @@ export class IndexCardStore {
   private cardsByPath: Map<string, IndexCard> = new Map();
   private cardsById: Map<string, IndexCard> = new Map();
   private allKnownPaths: Set<string> = new Set();
+  private basenameToPath: Map<string, string> = new Map(); // "本征方程与特征方程" → "笔记/.../本征方程与特征方程.md"
   private loaded = false;
 
   constructor(vault: Vault) {
@@ -33,10 +34,11 @@ export class IndexCardStore {
       this.cardsByPath.set(path.toLowerCase(), card);
       this.cardsById.set(card.docId, card);
       this.allKnownPaths.add(path.toLowerCase());
-      // Also store by basename for fuzzy matching
+      // Also store by basename for fuzzy matching + reverse lookup
       const basename = path.replace(/\.md$/, "").split("/").pop()?.toLowerCase();
       if (basename) {
         this.allKnownPaths.add(basename);
+        this.basenameToPath.set(basename, path);
       }
     }
 
@@ -73,25 +75,34 @@ export class IndexCardStore {
     if (!card) return [];
 
     const linked: string[] = [];
-    const allLinks = [...(card.outlinks || [])];
+    const seen = new Set<string>();
 
-    for (const link of allLinks) {
+    for (const link of card.outlinks || []) {
       // Strip [[...]] wrapping if present
       const raw = link.trim().replace(/^\[\[|\]\]$/g, "");
       const clean = raw.replace(/\.md$/, "").toLowerCase();
-      // Try exact path match
+
+      // Resolve to actual file path
+      let resolved: string | undefined;
+
+      // 1) Exact full path match
       if (this.allKnownPaths.has(clean)) {
-        linked.push(link.trim());
-        continue;
+        resolved = clean;
       }
-      // Try basename match
-      const namePart = clean.split("/").pop() || clean;
-      if (this.allKnownPaths.has(namePart)) {
-        linked.push(link.trim());
+
+      // 2) Basename → path reverse lookup
+      if (!resolved) {
+        const namePart = clean.split("/").pop() || clean;
+        resolved = this.basenameToPath.get(namePart);
+      }
+
+      if (resolved && !seen.has(resolved)) {
+        seen.add(resolved);
+        linked.push(resolved);
       }
     }
 
-    return [...new Set(linked)];
+    return linked;
   }
 
   /**

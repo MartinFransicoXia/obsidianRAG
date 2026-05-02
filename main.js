@@ -2837,6 +2837,8 @@ var IndexCardStore = class {
     this.cardsByPath = /* @__PURE__ */ new Map();
     this.cardsById = /* @__PURE__ */ new Map();
     this.allKnownPaths = /* @__PURE__ */ new Set();
+    this.basenameToPath = /* @__PURE__ */ new Map();
+    // "本征方程与特征方程" → "笔记/.../本征方程与特征方程.md"
     this.loaded = false;
     this.vault = vault;
   }
@@ -2856,6 +2858,7 @@ var IndexCardStore = class {
       const basename = path.replace(/\.md$/, "").split("/").pop()?.toLowerCase();
       if (basename) {
         this.allKnownPaths.add(basename);
+        this.basenameToPath.set(basename, path);
       }
     }
     this.loaded = true;
@@ -2890,20 +2893,24 @@ var IndexCardStore = class {
     if (!card)
       return [];
     const linked = [];
-    const allLinks = [...card.outlinks || []];
-    for (const link of allLinks) {
+    const seen = /* @__PURE__ */ new Set();
+    for (const link of card.outlinks || []) {
       const raw = link.trim().replace(/^\[\[|\]\]$/g, "");
       const clean = raw.replace(/\.md$/, "").toLowerCase();
+      let resolved;
       if (this.allKnownPaths.has(clean)) {
-        linked.push(link.trim());
-        continue;
+        resolved = clean;
       }
-      const namePart = clean.split("/").pop() || clean;
-      if (this.allKnownPaths.has(namePart)) {
-        linked.push(link.trim());
+      if (!resolved) {
+        const namePart = clean.split("/").pop() || clean;
+        resolved = this.basenameToPath.get(namePart);
+      }
+      if (resolved && !seen.has(resolved)) {
+        seen.add(resolved);
+        linked.push(resolved);
       }
     }
-    return [...new Set(linked)];
+    return linked;
   }
   /**
    * Resolve a link name to a known file path
