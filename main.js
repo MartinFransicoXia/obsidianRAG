@@ -5262,7 +5262,7 @@ var CardGenerator = class {
     if (data.outlinks.length) {
       lines.push("outlinks:");
       for (const link of data.outlinks.slice(0, 20))
-        lines.push(`  - "[[${escape(link)}]]"`);
+        lines.push(`  - [[${escape(link)}]]`);
     } else {
       lines.push("outlinks: []");
     }
