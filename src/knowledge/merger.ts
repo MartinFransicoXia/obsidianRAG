@@ -1,4 +1,4 @@
-import { Document, DocumentCluster, KnowledgeUnit } from "../types";
+import { DocumentCluster, KnowledgeUnit } from "../types";
 import { BatchProcessor } from "../cloud/batch-processor";
 
 /**

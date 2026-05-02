@@ -3,7 +3,7 @@
  * 420 target / 64 overlap / 520 max tokens
  */
 
-export interface Chunk {
+interface Chunk {
   text: string;
   chunkIndex: number;
   startChar: number;

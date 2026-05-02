@@ -4,14 +4,7 @@ import { CloudAPIClient } from "../cloud/api";
 import { LRUCache, hashString } from "../utils/cache-utils";
 import { fileToDocument, getAllMarkdownFiles } from "../utils/file-utils";
 import { chunkMarkdown } from "./chunker";
-import { VectorStore } from "../utils/vector-store";
-
-interface ChunkInfo {
-  docId: string;
-  title: string;
-  path: string;
-  scope: string;
-}
+import { VectorStore, ChunkInfo } from "../utils/vector-store";
 
 const CHUNK_TARGET = 420;
 const CHUNK_OVERLAP = 64;

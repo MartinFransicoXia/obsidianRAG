@@ -1,9 +1,8 @@
 import { Plugin, WorkspaceLeaf, Notice, TFile, TAbstractFile } from "obsidian";
-import { PluginSettings, DEFAULT_SETTINGS, QueryType, FusedResult, KnowledgeUnit, ChatSource, RankedArticle, IndexCard, PipelineResult } from "./types";
+import { PluginSettings, DEFAULT_SETTINGS, FusedResult, KnowledgeUnit, ChatSource, RankedArticle, IndexCard } from "./types";
 import { RAGSettingTab } from "./settings";
 import { RetrievalManager } from "./retrieval/manager";
 import { ResultFusion } from "./fusion/result-fusion";
-import { QueryAnalyzer } from "./fusion/query-analyzer";
 import { KnowledgeGenerator } from "./knowledge/generator";
 import { HistoryManager } from "./history/manager";
 import { CloudCache } from "./cloud/cache";
@@ -75,7 +74,6 @@ export default class EnhancedRAGPlugin extends Plugin {
 
   private retrievalManager!: RetrievalManager;
   private resultFusion!: ResultFusion;
-  private queryAnalyzer!: QueryAnalyzer;
   private knowledgeGenerator!: KnowledgeGenerator;
   private historyManager!: HistoryManager;
   private cloudCache!: CloudCache;
@@ -91,7 +89,6 @@ export default class EnhancedRAGPlugin extends Plugin {
     const pluginDir = `${this.app.vault.configDir}/plugins/obsidian-enhanced-rag`;
     this.retrievalManager = new RetrievalManager(this.app.vault, this.settings);
     this.resultFusion = new ResultFusion();
-    this.queryAnalyzer = new QueryAnalyzer();
     this.knowledgeGenerator = new KnowledgeGenerator(this.app.vault, this.settings);
     this.historyManager = new HistoryManager(this.app, pluginDir, this.settings.historyRetentionDays);
     this.cloudCache = new CloudCache(this.settings.cacheSize);

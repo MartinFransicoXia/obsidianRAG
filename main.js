@@ -2405,20 +2405,13 @@ var DEFAULT_SETTINGS = {
   embeddingBaseUrl: "",
   embeddingApiKey: "",
   embeddingDimensions: 1024,
-  rerankEnabled: false,
-  rerankModel: "qwen3-rerank",
-  rerankBaseUrl: "",
-  rerankApiKey: "",
   autoGenerateCards: true,
   enrichModel: "deepseek-chat",
   localServerEnabled: true,
   localServerPort: 8765,
   cacheSize: 100,
   historyRetentionDays: 30,
-  enableQueryTypeDetection: true,
-  autoOpenChatPanel: true,
-  showKnowledgeUnits: true,
-  theme: "auto"
+  showKnowledgeUnits: true
 };
 
 // src/settings.ts
@@ -2469,23 +2462,6 @@ var RAGSettingTab = class extends import_obsidian.PluginSettingTab {
         await this.plugin.saveSettings();
       }
     }));
-    containerEl.createEl("h3", { text: "Rerank \u914D\u7F6E" });
-    new import_obsidian.Setting(containerEl).setName("\u542F\u7528 Rerank").setDesc("\u4F7F\u7528 Rerank \u6A21\u578B\u5BF9\u68C0\u7D22\u7ED3\u679C\u4E8C\u6B21\u6392\u5E8F").addToggle((toggle) => toggle.setValue(this.plugin.settings.rerankEnabled).onChange(async (value) => {
-      this.plugin.settings.rerankEnabled = value;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian.Setting(containerEl).setName("Rerank Model").setDesc("\u6392\u5E8F\u6A21\u578B\uFF08\u5982 qwen3-rerank\u3001gte-rerank-v2\uFF09").addText((text) => text.setPlaceholder("qwen3-rerank").setValue(this.plugin.settings.rerankModel).onChange(async (value) => {
-      this.plugin.settings.rerankModel = value;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian.Setting(containerEl).setName("Rerank Base URL").setDesc("Rerank API \u5730\u5740\uFF08\u7559\u7A7A\u5219\u4E0E API Base URL \u76F8\u540C\uFF09").addText((text) => text.setPlaceholder("https://dashscope.aliyuncs.com/compatible-mode/v1").setValue(this.plugin.settings.rerankBaseUrl).onChange(async (value) => {
-      this.plugin.settings.rerankBaseUrl = value;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian.Setting(containerEl).setName("Rerank API Key").setDesc("Rerank API \u5BC6\u94A5\uFF08\u7559\u7A7A\u5219\u4F7F\u7528 Chat \u7684 API Key\uFF09").addText((text) => text.setPlaceholder("\u7559\u7A7A\u5219\u5171\u7528").setValue(this.plugin.settings.rerankApiKey).onChange(async (value) => {
-      this.plugin.settings.rerankApiKey = value;
-      await this.plugin.saveSettings();
-    }));
     containerEl.createEl("h3", { text: "\u7D22\u5F15\u5361\u8BED\u4E49\u586B\u5145" });
     new import_obsidian.Setting(containerEl).setName("\u586B\u5145\u6A21\u578B").setDesc("\u7528\u4E8E\u586B\u5145 one_line_summary / topic_secondary / question_types / best_for / not_for \u7684\u6A21\u578B").addText((text) => text.setPlaceholder("deepseek-chat").setValue(this.plugin.settings.enrichModel).onChange(async (value) => {
       this.plugin.settings.enrichModel = value;
@@ -2516,10 +2492,6 @@ var RAGSettingTab = class extends import_obsidian.PluginSettingTab {
         await this.plugin.saveSettings();
       }
     }));
-    new import_obsidian.Setting(containerEl).setName("\u542F\u7528\u67E5\u8BE2\u7C7B\u578B\u68C0\u6D4B").setDesc("\u68C0\u6D4B\u67E5\u8BE2\u7C7B\u578B\uFF08\u5B9A\u4E49/\u6B65\u9AA4/\u5BF9\u6BD4\u7B49\uFF09\uFF0C\u5339\u914D\u5361\u7247\u7684 question_types \u63D0\u5347\u6392\u5E8F").addToggle((toggle) => toggle.setValue(this.plugin.settings.enableQueryTypeDetection).onChange(async (value) => {
-      this.plugin.settings.enableQueryTypeDetection = value;
-      await this.plugin.saveSettings();
-    }));
     new import_obsidian.Setting(containerEl).setName("\u81EA\u52A8\u751F\u6210\u7D22\u5F15\u5361").setDesc("\u6587\u4EF6\u4FDD\u5B58\u65F6\u81EA\u52A8\u751F\u6210/\u66F4\u65B0\u7D22\u5F15\u5361\u5230 00_INDEX/files/").addToggle((toggle) => toggle.setValue(this.plugin.settings.autoGenerateCards).onChange(async (value) => {
       this.plugin.settings.autoGenerateCards = value;
       await this.plugin.saveSettings();
@@ -2537,10 +2509,6 @@ var RAGSettingTab = class extends import_obsidian.PluginSettingTab {
       }
     }));
     containerEl.createEl("h3", { text: "\u754C\u9762\u914D\u7F6E" });
-    new import_obsidian.Setting(containerEl).setName("\u81EA\u52A8\u6253\u5F00\u9762\u677F").setDesc("\u641C\u7D22\u65F6\u81EA\u52A8\u6253\u5F00 RAG \u9762\u677F").addToggle((toggle) => toggle.setValue(this.plugin.settings.autoOpenChatPanel).onChange(async (value) => {
-      this.plugin.settings.autoOpenChatPanel = value;
-      await this.plugin.saveSettings();
-    }));
     new import_obsidian.Setting(containerEl).setName("\u663E\u793A\u77E5\u8BC6\u5355\u5143").setDesc("\u5728\u7ED3\u679C\u4E2D\u663E\u793A\u77E5\u8BC6\u5355\u5143").addToggle((toggle) => toggle.setValue(this.plugin.settings.showKnowledgeUnits).onChange(async (value) => {
       this.plugin.settings.showKnowledgeUnits = value;
       await this.plugin.saveSettings();
@@ -3034,15 +3002,16 @@ var CloudAPIClient = class {
     if (embedKey) {
       headers["Authorization"] = `Bearer ${embedKey}`;
     }
+    const bodyObj = { model, input: text };
+    if (this.settings.embeddingDimensions > 0) {
+      bodyObj.dimensions = this.settings.embeddingDimensions;
+    }
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         const response = await fetch(url, {
           method: "POST",
           headers,
-          body: JSON.stringify({
-            model,
-            input: text
-          })
+          body: JSON.stringify(bodyObj)
         });
         if (!response.ok) {
           if (response.status === 429) {
@@ -3838,7 +3807,9 @@ var QueryAnalyzer = class {
       ["procedure" /* PROCEDURE */]: 0,
       ["comparison" /* COMPARISON */]: 0,
       ["explanation" /* EXPLANATION */]: 0,
-      ["summarization" /* SUMMARIZATION */]: 0
+      ["summarization" /* SUMMARIZATION */]: 0,
+      ["reference" /* REFERENCE */]: 0,
+      ["troubleshooting" /* TROUBLESHOOTING */]: 0
     };
     for (const [type, patterns] of Object.entries(this.patterns)) {
       for (const pattern of patterns) {
@@ -4939,7 +4910,7 @@ var CardGenerator = class {
   }
   // ── LLM semantic enrichment ──────────────────────────────
   /**
-   * Call LLM to fill topic_secondary, question_types, best_for, not_for, read_with
+   * Call LLM to fill one_line_summary, topic_secondary, question_types, best_for, not_for
    * Reads all card files from 00_INDEX/files/, sends metadata to LLM, writes back updated cards.
    */
   async enrichCards(apiKey, apiBaseUrl, model, onProgress) {
@@ -5765,7 +5736,6 @@ var EnhancedRAGPlugin = class extends import_obsidian7.Plugin {
     const pluginDir = `${this.app.vault.configDir}/plugins/obsidian-enhanced-rag`;
     this.retrievalManager = new RetrievalManager(this.app.vault, this.settings);
     this.resultFusion = new ResultFusion();
-    this.queryAnalyzer = new QueryAnalyzer();
     this.knowledgeGenerator = new KnowledgeGenerator(this.app.vault, this.settings);
     this.historyManager = new HistoryManager(this.app, pluginDir, this.settings.historyRetentionDays);
     this.cloudCache = new CloudCache(this.settings.cacheSize);

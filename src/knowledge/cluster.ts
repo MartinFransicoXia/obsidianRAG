@@ -1,4 +1,4 @@
-import { Document, DocumentCluster, FusedResult, IndexCard } from "../types";
+import { Document, DocumentCluster, IndexCard } from "../types";
 
 /**
  * Document clustering - groups documents by topic

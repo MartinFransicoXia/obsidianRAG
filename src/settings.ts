@@ -116,52 +116,6 @@ export class RAGSettingTab extends PluginSettingTab {
           }
         }));
 
-    // Rerank Configuration
-    containerEl.createEl("h3", { text: "Rerank 配置" });
-
-    new Setting(containerEl)
-      .setName("启用 Rerank")
-      .setDesc("使用 Rerank 模型对检索结果二次排序")
-      .addToggle(toggle => toggle
-        .setValue(this.plugin.settings.rerankEnabled)
-        .onChange(async (value) => {
-          this.plugin.settings.rerankEnabled = value;
-          await this.plugin.saveSettings();
-        }));
-
-    new Setting(containerEl)
-      .setName("Rerank Model")
-      .setDesc("排序模型（如 qwen3-rerank、gte-rerank-v2）")
-      .addText(text => text
-        .setPlaceholder("qwen3-rerank")
-        .setValue(this.plugin.settings.rerankModel)
-        .onChange(async (value) => {
-          this.plugin.settings.rerankModel = value;
-          await this.plugin.saveSettings();
-        }));
-
-    new Setting(containerEl)
-      .setName("Rerank Base URL")
-      .setDesc("Rerank API 地址（留空则与 API Base URL 相同）")
-      .addText(text => text
-        .setPlaceholder("https://dashscope.aliyuncs.com/compatible-mode/v1")
-        .setValue(this.plugin.settings.rerankBaseUrl)
-        .onChange(async (value) => {
-          this.plugin.settings.rerankBaseUrl = value;
-          await this.plugin.saveSettings();
-        }));
-
-    new Setting(containerEl)
-      .setName("Rerank API Key")
-      .setDesc("Rerank API 密钥（留空则使用 Chat 的 API Key）")
-      .addText(text => text
-        .setPlaceholder("留空则共用")
-        .setValue(this.plugin.settings.rerankApiKey)
-        .onChange(async (value) => {
-          this.plugin.settings.rerankApiKey = value;
-          await this.plugin.saveSettings();
-        }));
-
     // Index Card Enrichment
     containerEl.createEl("h3", { text: "索引卡语义填充" });
 
@@ -224,16 +178,6 @@ export class RAGSettingTab extends PluginSettingTab {
         }));
 
     new Setting(containerEl)
-      .setName("启用查询类型检测")
-      .setDesc("检测查询类型（定义/步骤/对比等），匹配卡片的 question_types 提升排序")
-      .addToggle(toggle => toggle
-        .setValue(this.plugin.settings.enableQueryTypeDetection)
-        .onChange(async (value) => {
-          this.plugin.settings.enableQueryTypeDetection = value;
-          await this.plugin.saveSettings();
-        }));
-
-    new Setting(containerEl)
       .setName("自动生成索引卡")
       .setDesc("文件保存时自动生成/更新索引卡到 00_INDEX/files/")
       .addToggle(toggle => toggle
@@ -272,16 +216,6 @@ export class RAGSettingTab extends PluginSettingTab {
 
     // UI Configuration
     containerEl.createEl("h3", { text: "界面配置" });
-
-    new Setting(containerEl)
-      .setName("自动打开面板")
-      .setDesc("搜索时自动打开 RAG 面板")
-      .addToggle(toggle => toggle
-        .setValue(this.plugin.settings.autoOpenChatPanel)
-        .onChange(async (value) => {
-          this.plugin.settings.autoOpenChatPanel = value;
-          await this.plugin.saveSettings();
-        }));
 
     new Setting(containerEl)
       .setName("显示知识单元")

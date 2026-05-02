@@ -1,5 +1,5 @@
 import { App } from "obsidian";
-import { LocalHistory, QueryRecord, DocumentInteraction, MergeCacheEntry } from "../types";
+import { LocalHistory, MergeCacheEntry } from "../types";
 
 const DATA_VERSION = 1;
 const DEFAULT_HISTORY: LocalHistory = {

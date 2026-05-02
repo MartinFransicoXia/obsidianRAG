@@ -10,7 +10,7 @@ const DB_PATH = ".obsidian/plugins/obsidian-enhanced-rag/data/vectors.db";
 const DATA_DIR = ".obsidian/plugins/obsidian-enhanced-rag/data";
 const WASM_PATH = ".obsidian/plugins/obsidian-enhanced-rag/sql-wasm.wasm";
 
-interface ChunkInfo {
+export interface ChunkInfo {
   docId: string;
   title: string;
   path: string;

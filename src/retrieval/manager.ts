@@ -1,5 +1,5 @@
 import { Vault } from "obsidian";
-import { PluginSettings, SearchResult, PipelineResult, IndexCard, KnowledgeUnit } from "../types";
+import { PluginSettings, SearchResult, PipelineResult } from "../types";
 import { KeywordRetriever } from "./keyword-retriever";
 import { IndexCardStore } from "./index-retriever";
 import { VectorRetriever } from "./vector-retriever";

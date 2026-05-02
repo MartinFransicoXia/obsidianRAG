@@ -82,7 +82,9 @@ export class QueryAnalyzer {
       [QueryType.PROCEDURE]: 0,
       [QueryType.COMPARISON]: 0,
       [QueryType.EXPLANATION]: 0,
-      [QueryType.SUMMARIZATION]: 0
+      [QueryType.SUMMARIZATION]: 0,
+      [QueryType.REFERENCE]: 0,
+      [QueryType.TROUBLESHOOTING]: 0,
     };
 
     // Score each pattern

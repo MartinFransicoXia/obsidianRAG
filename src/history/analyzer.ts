@@ -1,4 +1,4 @@
-import { LocalHistory, QueryRecord, DocumentInteraction } from "../types";
+import { LocalHistory, QueryRecord } from "../types";
 
 /**
  * History analyzer - extracts insights from user history

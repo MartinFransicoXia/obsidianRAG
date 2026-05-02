@@ -82,15 +82,17 @@ export class CloudAPIClient {
       headers["Authorization"] = `Bearer ${embedKey}`;
     }
 
+    const bodyObj: Record<string, unknown> = { model, input: text };
+    if (this.settings.embeddingDimensions > 0) {
+      bodyObj.dimensions = this.settings.embeddingDimensions;
+    }
+
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       try {
         const response = await fetch(url, {
           method: "POST",
           headers,
-          body: JSON.stringify({
-            model,
-            input: text
-          })
+          body: JSON.stringify(bodyObj)
         });
 
         if (!response.ok) {

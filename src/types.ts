@@ -16,11 +16,6 @@ export interface PluginSettings {
   embeddingBaseUrl: string;  // 留空则与 apiBaseUrl 相同
   embeddingApiKey: string;   // 留空则与 apiKey 相同
   embeddingDimensions: number;
-  // Rerank
-  rerankEnabled: boolean;
-  rerankModel: string;
-  rerankBaseUrl: string;     // 留空则与 apiBaseUrl 相同
-  rerankApiKey: string;      // 留空则与 apiKey 相同
   // Index cards
   autoGenerateCards: boolean;
   enrichModel: string;  // 索引卡语义字段填充模型
@@ -30,10 +25,7 @@ export interface PluginSettings {
   // General
   cacheSize: number;
   historyRetentionDays: number;
-  enableQueryTypeDetection: boolean;
-  autoOpenChatPanel: boolean;
   showKnowledgeUnits: boolean;
-  theme: "light" | "dark" | "auto";
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -45,20 +37,13 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   embeddingBaseUrl: "",
   embeddingApiKey: "",
   embeddingDimensions: 1024,
-  rerankEnabled: false,
-  rerankModel: "qwen3-rerank",
-  rerankBaseUrl: "",
-  rerankApiKey: "",
   autoGenerateCards: true,
   enrichModel: "deepseek-chat",
   localServerEnabled: true,
   localServerPort: 8765,
   cacheSize: 100,
   historyRetentionDays: 30,
-  enableQueryTypeDetection: true,
-  autoOpenChatPanel: true,
   showKnowledgeUnits: true,
-  theme: "auto"
 };
 
 // ============================================
@@ -250,14 +235,6 @@ export interface CachedResponse {
 // ============================================
 // UI Types
 // ============================================
-
-export interface SearchState {
-  query: string;
-  isLoading: boolean;
-  results: FusedResult[];
-  knowledgeUnits: KnowledgeUnit[];
-  error: string | null;
-}
 
 export interface ChatSource {
   path: string;

@@ -17,10 +17,10 @@ async function sha1(text: string): Promise<string> {
  * Index card generator — parses Markdown files and generates
  * unified-field index cards in 00_INDEX/files/
  *
- * Unified fields (19): docId, title, path, scope,
+ * 20 fields: docId, title, path, scope,
  *   tags, headings, outlinks,
  *   domain, topicPrimary, topicSecondary, noteRole, questionTypes,
- *   oneLineSummary, retrievalKeywords, bestFor, notFor, readWith,
+ *   oneLineSummary, retrievalKeywords, bestFor, notFor,
  *   sourceHash, buildStatus, generatedAt, content
  */
 const ENRICH_SYSTEM_PROMPT = `你是知识库索引专家。你会收到一批文档卡片（JSON 数组），为每一张卡片补充语义字段。
@@ -148,7 +148,7 @@ export class CardGenerator {
   // ── LLM semantic enrichment ──────────────────────────────
 
   /**
-   * Call LLM to fill topic_secondary, question_types, best_for, not_for, read_with
+   * Call LLM to fill one_line_summary, topic_secondary, question_types, best_for, not_for
    * Reads all card files from 00_INDEX/files/, sends metadata to LLM, writes back updated cards.
    */
   async enrichCards(
