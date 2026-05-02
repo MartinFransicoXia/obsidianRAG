@@ -73,7 +73,7 @@ export class IndexCardStore {
     if (!card) return [];
 
     const linked: string[] = [];
-    const allLinks = [...(card.outlinks || []), ...(card.readWith || [])];
+    const allLinks = [...(card.outlinks || [])];
 
     for (const link of allLinks) {
       const clean = link.trim().replace(/\.md$/, "").toLowerCase();

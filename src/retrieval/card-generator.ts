@@ -26,15 +26,15 @@ async function sha1(text: string): Promise<string> {
 const ENRICH_SYSTEM_PROMPT = `你是知识库索引专家。你会收到一批文档卡片（JSON 数组），为每一张卡片补充语义字段。
 
 对每张卡片输出 5 个字段：
+- one_line_summary: 一句话摘要（80-150字），概括文档核心内容
 - topic_secondary: 涉及但非核心的其他主题，0-3 个
 - question_types: 适用问题类型 1-4 个，从枚举选：definition(定义)/explanation(原理解释)/comparison(对比)/procedure(步骤流程)/reference(公式数据参考)/troubleshooting(问题排查)
 - best_for: 什么场景优先推荐这篇，1-3 个（如"入门学习"、"公式速查"、"考前复习"）
 - not_for: 什么场景不推荐这篇，0-2 个（如"动手实验"、"最新进展"）
-- read_with: 建议一起阅读的文件名，0-3 个（只写文件名不含路径和.md后缀）
 
 必须以 JSON 数组格式返回，每个元素对应一张输入卡片的语义字段。不要 Markdown 代码块包裹，直接输出纯 JSON 数组：
 
-[{"topic_secondary":["次主题"],"question_types":["definition"],"best_for":["入门学习"],"not_for":[],"read_with":["能带理论"]}]`;
+[{"one_line_summary":"一句话摘要","topic_secondary":["次主题"],"question_types":["definition"],"best_for":["入门学习"],"not_for":[]}]`;
 
 export class CardGenerator {
   private vault: Vault;
@@ -65,7 +65,6 @@ export class CardGenerator {
     const body = this.stripFrontmatter(content);
     const title = this.extractTitle(body, file.basename);
     const rawLinks = this.extractWikiLinks(content);
-    const validLinks = await this.validateLinks(rawLinks);
     const tags = this.extractTags(content, fm);
     const headings = this.extractHeadings(body);
     const domain = this.extractDomain(file.path);
@@ -84,7 +83,7 @@ export class CardGenerator {
       tags,
       headings,
       retrievalKeywords: keywords,
-      outlinks: validLinks,
+      outlinks: rawLinks,
       noteRole,
       sourceHash: newHash,
     });
@@ -248,10 +247,8 @@ export class CardGenerator {
           const body = this.stripFrontmatter(cardContent);
           const title = this.extractTitle(body, file.basename);
 
-          const readWith = (item.read_with as string[]) || [];
-          const validatedReadWith = await this.validateLinks(readWith);
-
           // Build updated card with enriched fields
+          const enrichedSummary = (item.one_line_summary as string) || fm.one_line_summary || "";
           const newCard = this.buildCardFile({
             docId: fm.doc_id || file.path,
             title,
@@ -259,7 +256,7 @@ export class CardGenerator {
             scope: fm.scope || "mainline",
             domain: fm.domain || "",
             topicPrimary: fm.topic_primary || title,
-            oneLineSummary: fm.one_line_summary || "",
+            oneLineSummary: enrichedSummary,
             tags: this.parseYamlList(fm.tags),
             headings: this.extractHeadings(body),
             retrievalKeywords: this.parseYamlList(fm.retrieval_keywords),
@@ -271,7 +268,6 @@ export class CardGenerator {
             questionTypes: (item.question_types as string[]) || [],
             bestFor: (item.best_for as string[]) || [],
             notFor: (item.not_for as string[]) || [],
-            readWith: validatedReadWith,
           });
 
           await this.vault.modify(file, newCard);
@@ -303,27 +299,6 @@ export class CardGenerator {
       return raw.split("\n").filter(l => l.trim()).map(l => l.trim().replace(/^["']|["']$/g, ""));
     }
     return raw.split(",").filter(x => x.trim()).map(x => x.trim().replace(/^["']|["']$/g, ""));
-  }
-
-  // ── Link validation ──────────────────────────────────────
-
-  private async validateLinks(links: string[]): Promise<string[]> {
-    const valid: string[] = [];
-    for (const link of links) {
-      const clean = link.replace(/\.md$/, "");
-      // Try exact path match
-      const file = this.vault.getAbstractFileByPath(clean + ".md");
-      if (file instanceof TFile) {
-        valid.push(link);
-        continue;
-      }
-      // Try as resolved link (Obsidian link resolution)
-      const resolved = this.vault.getAbstractFileByPath(link);
-      if (resolved instanceof TFile) {
-        valid.push(link);
-      }
-    }
-    return valid;
   }
 
   // ── Parsing helpers ──────────────────────────────────────
@@ -431,13 +406,17 @@ export class CardGenerator {
   }
 
   private extractOneLineSummary(body: string): string {
+    const parts: string[] = [];
     for (const line of body.split("\n")) {
       const stripped = line.trim();
       if (stripped && !stripped.startsWith("#")) {
-        return stripped.substring(0, 150);
+        parts.push(stripped);
+        const joined = parts.join(" ");
+        if (joined.length >= 80) return joined.substring(0, 150);
       }
     }
-    return "";
+    // Fallback: use title (which the caller has) — empty here, caller fills with title
+    return parts.join(" ").substring(0, 150) || "";
   }
 
   private extractKeywords(content: string, title: string): string[] {
@@ -503,7 +482,6 @@ export class CardGenerator {
     questionTypes?: string[];
     bestFor?: string[];
     notFor?: string[];
-    readWith?: string[];
   }): string {
     const escape = (s: string) => s.replace(/"/g, '\\"').replace(/\n/g, " ");
     const lines: string[] = [
@@ -553,7 +531,6 @@ export class CardGenerator {
     const qt = enriched?.questionTypes || [];
     const bf = enriched?.bestFor || [];
     const nf = enriched?.notFor || [];
-    const rw = enriched?.readWith || [];
 
     if (ts.length) {
       lines.push("topic_secondary:");
@@ -578,12 +555,6 @@ export class CardGenerator {
       for (const n of nf) lines.push(`  - "${escape(n)}"`);
     } else {
       lines.push("not_for: []");
-    }
-    if (rw.length) {
-      lines.push("read_with:");
-      for (const r of rw) lines.push(`  - "${escape(r)}"`);
-    } else {
-      lines.push("read_with: []");
     }
 
     const fm = lines.join("\n") + "\n";

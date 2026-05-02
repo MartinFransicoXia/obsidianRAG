@@ -150,7 +150,6 @@ export interface IndexCard {
   retrievalKeywords: string[];
   bestFor: string[];
   notFor: string[];
-  readWith: string[];
   // ── 构建元数据 ──
   sourceHash: string;
   buildStatus: string;

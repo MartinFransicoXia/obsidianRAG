@@ -133,7 +133,6 @@ export async function readIndexCard(file: TFile, vault: Vault): Promise<IndexCar
       retrievalKeywords: parseYamlList(fm.retrieval_keywords || ""),
       bestFor: parseYamlList(fm.best_for || ""),
       notFor: parseYamlList(fm.not_for || ""),
-      readWith: parseYamlList(fm.read_with || ""),
       sourceHash: fm.source_hash || "",
       buildStatus: fm.build_status || "success",
       generatedAt: fm.generated_at || "",

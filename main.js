@@ -2670,7 +2670,6 @@ async function readIndexCard(file, vault) {
       retrievalKeywords: parseYamlList(fm.retrieval_keywords || ""),
       bestFor: parseYamlList(fm.best_for || ""),
       notFor: parseYamlList(fm.not_for || ""),
-      readWith: parseYamlList(fm.read_with || ""),
       sourceHash: fm.source_hash || "",
       buildStatus: fm.build_status || "success",
       generatedAt: fm.generated_at || "",
@@ -2906,7 +2905,7 @@ var IndexCardStore = class {
     if (!card)
       return [];
     const linked = [];
-    const allLinks = [...card.outlinks || [], ...card.readWith || []];
+    const allLinks = [...card.outlinks || []];
     for (const link of allLinks) {
       const clean = link.trim().replace(/\.md$/, "").toLowerCase();
       if (this.allKnownPaths.has(clean)) {
@@ -4820,15 +4819,15 @@ async function sha1(text) {
 var ENRICH_SYSTEM_PROMPT = `\u4F60\u662F\u77E5\u8BC6\u5E93\u7D22\u5F15\u4E13\u5BB6\u3002\u4F60\u4F1A\u6536\u5230\u4E00\u6279\u6587\u6863\u5361\u7247\uFF08JSON \u6570\u7EC4\uFF09\uFF0C\u4E3A\u6BCF\u4E00\u5F20\u5361\u7247\u8865\u5145\u8BED\u4E49\u5B57\u6BB5\u3002
 
 \u5BF9\u6BCF\u5F20\u5361\u7247\u8F93\u51FA 5 \u4E2A\u5B57\u6BB5\uFF1A
+- one_line_summary: \u4E00\u53E5\u8BDD\u6458\u8981\uFF0880-150\u5B57\uFF09\uFF0C\u6982\u62EC\u6587\u6863\u6838\u5FC3\u5185\u5BB9
 - topic_secondary: \u6D89\u53CA\u4F46\u975E\u6838\u5FC3\u7684\u5176\u4ED6\u4E3B\u9898\uFF0C0-3 \u4E2A
 - question_types: \u9002\u7528\u95EE\u9898\u7C7B\u578B 1-4 \u4E2A\uFF0C\u4ECE\u679A\u4E3E\u9009\uFF1Adefinition(\u5B9A\u4E49)/explanation(\u539F\u7406\u89E3\u91CA)/comparison(\u5BF9\u6BD4)/procedure(\u6B65\u9AA4\u6D41\u7A0B)/reference(\u516C\u5F0F\u6570\u636E\u53C2\u8003)/troubleshooting(\u95EE\u9898\u6392\u67E5)
 - best_for: \u4EC0\u4E48\u573A\u666F\u4F18\u5148\u63A8\u8350\u8FD9\u7BC7\uFF0C1-3 \u4E2A\uFF08\u5982"\u5165\u95E8\u5B66\u4E60"\u3001"\u516C\u5F0F\u901F\u67E5"\u3001"\u8003\u524D\u590D\u4E60"\uFF09
 - not_for: \u4EC0\u4E48\u573A\u666F\u4E0D\u63A8\u8350\u8FD9\u7BC7\uFF0C0-2 \u4E2A\uFF08\u5982"\u52A8\u624B\u5B9E\u9A8C"\u3001"\u6700\u65B0\u8FDB\u5C55"\uFF09
-- read_with: \u5EFA\u8BAE\u4E00\u8D77\u9605\u8BFB\u7684\u6587\u4EF6\u540D\uFF0C0-3 \u4E2A\uFF08\u53EA\u5199\u6587\u4EF6\u540D\u4E0D\u542B\u8DEF\u5F84\u548C.md\u540E\u7F00\uFF09
 
 \u5FC5\u987B\u4EE5 JSON \u6570\u7EC4\u683C\u5F0F\u8FD4\u56DE\uFF0C\u6BCF\u4E2A\u5143\u7D20\u5BF9\u5E94\u4E00\u5F20\u8F93\u5165\u5361\u7247\u7684\u8BED\u4E49\u5B57\u6BB5\u3002\u4E0D\u8981 Markdown \u4EE3\u7801\u5757\u5305\u88F9\uFF0C\u76F4\u63A5\u8F93\u51FA\u7EAF JSON \u6570\u7EC4\uFF1A
 
-[{"topic_secondary":["\u6B21\u4E3B\u9898"],"question_types":["definition"],"best_for":["\u5165\u95E8\u5B66\u4E60"],"not_for":[],"read_with":["\u80FD\u5E26\u7406\u8BBA"]}]`;
+[{"one_line_summary":"\u4E00\u53E5\u8BDD\u6458\u8981","topic_secondary":["\u6B21\u4E3B\u9898"],"question_types":["definition"],"best_for":["\u5165\u95E8\u5B66\u4E60"],"not_for":[]}]`;
 var CardGenerator = class {
   constructor(vault) {
     this.vault = vault;
@@ -4853,7 +4852,6 @@ var CardGenerator = class {
     const body = this.stripFrontmatter(content);
     const title = this.extractTitle(body, file.basename);
     const rawLinks = this.extractWikiLinks(content);
-    const validLinks = await this.validateLinks(rawLinks);
     const tags = this.extractTags(content, fm);
     const headings = this.extractHeadings(body);
     const domain = this.extractDomain(file.path);
@@ -4871,7 +4869,7 @@ var CardGenerator = class {
       tags,
       headings,
       retrievalKeywords: keywords,
-      outlinks: validLinks,
+      outlinks: rawLinks,
       noteRole,
       sourceHash: newHash
     });
@@ -5009,8 +5007,7 @@ var CardGenerator = class {
           const fm = this.parseFrontmatter(cardContent);
           const body = this.stripFrontmatter(cardContent);
           const title = this.extractTitle(body, file.basename);
-          const readWith = item.read_with || [];
-          const validatedReadWith = await this.validateLinks(readWith);
+          const enrichedSummary = item.one_line_summary || fm.one_line_summary || "";
           const newCard = this.buildCardFile({
             docId: fm.doc_id || file.path,
             title,
@@ -5018,7 +5015,7 @@ var CardGenerator = class {
             scope: fm.scope || "mainline",
             domain: fm.domain || "",
             topicPrimary: fm.topic_primary || title,
-            oneLineSummary: fm.one_line_summary || "",
+            oneLineSummary: enrichedSummary,
             tags: this.parseYamlList(fm.tags),
             headings: this.extractHeadings(body),
             retrievalKeywords: this.parseYamlList(fm.retrieval_keywords),
@@ -5029,8 +5026,7 @@ var CardGenerator = class {
             topicSecondary: item.topic_secondary || [],
             questionTypes: item.question_types || [],
             bestFor: item.best_for || [],
-            notFor: item.not_for || [],
-            readWith: validatedReadWith
+            notFor: item.not_for || []
           });
           await this.vault.modify(file, newCard);
           count++;
@@ -5060,23 +5056,6 @@ var CardGenerator = class {
       return raw.split("\n").filter((l) => l.trim()).map((l) => l.trim().replace(/^["']|["']$/g, ""));
     }
     return raw.split(",").filter((x) => x.trim()).map((x) => x.trim().replace(/^["']|["']$/g, ""));
-  }
-  // ── Link validation ──────────────────────────────────────
-  async validateLinks(links) {
-    const valid = [];
-    for (const link of links) {
-      const clean = link.replace(/\.md$/, "");
-      const file = this.vault.getAbstractFileByPath(clean + ".md");
-      if (file instanceof import_obsidian3.TFile) {
-        valid.push(link);
-        continue;
-      }
-      const resolved = this.vault.getAbstractFileByPath(link);
-      if (resolved instanceof import_obsidian3.TFile) {
-        valid.push(link);
-      }
-    }
-    return valid;
   }
   // ── Parsing helpers ──────────────────────────────────────
   parseFrontmatter(content) {
@@ -5175,13 +5154,17 @@ var CardGenerator = class {
     return parts.length > 1 ? parts[0] : "";
   }
   extractOneLineSummary(body) {
+    const parts = [];
     for (const line of body.split("\n")) {
       const stripped = line.trim();
       if (stripped && !stripped.startsWith("#")) {
-        return stripped.substring(0, 150);
+        parts.push(stripped);
+        const joined = parts.join(" ");
+        if (joined.length >= 80)
+          return joined.substring(0, 150);
       }
     }
-    return "";
+    return parts.join(" ").substring(0, 150) || "";
   }
   extractKeywords(content, title) {
     const keywords = [];
@@ -5272,7 +5255,6 @@ var CardGenerator = class {
     const qt = enriched?.questionTypes || [];
     const bf = enriched?.bestFor || [];
     const nf = enriched?.notFor || [];
-    const rw = enriched?.readWith || [];
     if (ts.length) {
       lines.push("topic_secondary:");
       for (const t of ts)
@@ -5300,13 +5282,6 @@ var CardGenerator = class {
         lines.push(`  - "${escape(n)}"`);
     } else {
       lines.push("not_for: []");
-    }
-    if (rw.length) {
-      lines.push("read_with:");
-      for (const r of rw)
-        lines.push(`  - "${escape(r)}"`);
-    } else {
-      lines.push("read_with: []");
     }
     const fm = lines.join("\n") + "\n";
     return `---
